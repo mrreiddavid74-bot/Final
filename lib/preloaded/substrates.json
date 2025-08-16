@@ -1,0 +1,154 @@
+[
+  {
+    "id": "3mm-hoarding-grade-acp-2440-x-1220",
+    "name": "3mm Hoarding Grade ACP (2440 x 1220)",
+    "thicknessMm": 3.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 23.5
+  },
+  {
+    "id": "3mm-hoarding-grade-acp-3050-x-1500",
+    "name": "3mm Hoarding Grade ACP (3050 x 1500)",
+    "thicknessMm": 3.0,
+    "sizeW": 3050,
+    "sizeH": 1500,
+    "pricePerSheet": 36.11
+  },
+  {
+    "id": "1mm-foamex-2440-x-1220",
+    "name": "1mm Foamex (2440 x 1220)",
+    "thicknessMm": 1.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 6.0
+  },
+  {
+    "id": "2mm-foamex-2440-x-1220",
+    "name": "2mm Foamex (2440 x 1220)",
+    "thicknessMm": 2.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 9.0
+  },
+  {
+    "id": "3mm-foamex-2440-x-1220",
+    "name": "3mm Foamex (2440 x 1220)",
+    "thicknessMm": 3.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 13.44
+  },
+  {
+    "id": "5mm-foamex-2440-x-1220",
+    "name": "5mm Foamex (2440 x 1220)",
+    "thicknessMm": 5.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 21.5
+  },
+  {
+    "id": "10mm-foamex-2440-x-1220",
+    "name": "10mm Foamex (2440 x 1220)",
+    "thicknessMm": 10.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 42.15
+  },
+  {
+    "id": "3mm-pal-2440-x-1220",
+    "name": "3mm Pal (2440 x 1220)",
+    "thicknessMm": 3.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 23.0
+  },
+  {
+    "id": "5mm-pal-2440-x-1220",
+    "name": "5mm Pal (2440 x 1220)",
+    "thicknessMm": 5.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 37.0
+  },
+  {
+    "id": "10mm-pal-2440-x-1220",
+    "name": "10mm Pal (2440 x 1220)",
+    "thicknessMm": 10.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 68.66
+  },
+  {
+    "id": "4mm-correx-2440-x-1220",
+    "name": "4mm Correx (2440 x 1220)",
+    "thicknessMm": 4.0,
+    "sizeW": 2440,
+    "sizeH": 1220,
+    "pricePerSheet": 6.5
+  },
+  {
+    "id": "1mm-foamex-3050-x-1560",
+    "name": "1mm Foamex (3050 x 1560)",
+    "thicknessMm": 1.0,
+    "sizeW": 3050,
+    "sizeH": 1560,
+    "pricePerSheet": 16.0
+  },
+  {
+    "id": "2mm-foamex-3050-x-1560",
+    "name": "2mm Foamex (3050 x 1560)",
+    "thicknessMm": 2.0,
+    "sizeW": 3050,
+    "sizeH": 1560,
+    "pricePerSheet": 18.0
+  },
+  {
+    "id": "3mm-foamex-3050-x-1560",
+    "name": "3mm Foamex (3050 x 1560)",
+    "thicknessMm": 3.0,
+    "sizeW": 3050,
+    "sizeH": 1560,
+    "pricePerSheet": 21.48
+  },
+  {
+    "id": "5mm-foamex-3050-x-1560",
+    "name": "5mm Foamex (3050 x 1560)",
+    "thicknessMm": 5.0,
+    "sizeW": 3050,
+    "sizeH": 1560,
+    "pricePerSheet": 34.37
+  },
+  {
+    "id": "10mm-foamex-3050-x-1560",
+    "name": "10mm Foamex (3050 x 1560)",
+    "thicknessMm": 10.0,
+    "sizeW": 3050,
+    "sizeH": 1560,
+    "pricePerSheet": 67.37
+  },
+  {
+    "id": "3mm-foamex-3050-x-2030",
+    "name": "3mm Foamex (3050 x 2030)",
+    "thicknessMm": 3.0,
+    "sizeW": 3050,
+    "sizeH": 2030,
+    "pricePerSheet": 27.95
+  },
+  {
+    "id": "5mm-foamex-3050-x-2030",
+    "name": "5mm Foamex (3050 x 2030)",
+    "thicknessMm": 5.0,
+    "sizeW": 3050,
+    "sizeH": 2030,
+    "pricePerSheet": 44.72
+  },
+  {
+    "id": "10mm-foamex-3050-x-2030",
+    "name": "10mm Foamex (3050 x 2030)",
+    "thicknessMm": 10.0,
+    "sizeW": 3050,
+    "sizeH": 2030,
+    "pricePerSheet": 87.67
+  }
+]

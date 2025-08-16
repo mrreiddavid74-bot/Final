@@ -1,0 +1,192 @@
+[
+  {
+    "id": "metamark-md5-polymeric-gloss-or-matt-laminate",
+    "name": "Metamark MD5 Polymeric Gloss or Matt + Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 8.92,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-md5-high-tack-polymeric-gloss-laminate",
+    "name": "Metamark MD5 High Tack Polymeric Gloss + Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 10.14,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-md5-high-tack-polymeric-gloss-r9-sand-laminate",
+    "name": "Metamark MD5 High Tack Polymeric Gloss + R9 Sand Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 10.16,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-md5-high-tack-polymeric-gloss-r9-floor-laminate",
+    "name": "Metamark MD5 High Tack Polymeric Gloss + R9 Floor Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 13.2,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-cast-cast-laminate",
+    "name": "Metamark Cast + Cast Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 18.96,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "mdp-standard-mono-mono-matt-lam-2-3-year",
+    "name": "MDP Standard Mono & Mono Matt Lam 2-3 Year",
+    "category": "printable",
+    "rollWidthMm": 1570.0,
+    "rollPrintableWidthMm": 1570.0,
+    "pricePerLm": 5.0,
+    "maxPrintWidthMm": 1570.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "poster-paper",
+    "name": "Poster Paper",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 3.48,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "poster-paper-mono-laminate",
+    "name": "Poster Paper + Mono Laminate",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 5.6,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "pvc-banner-440gsm",
+    "name": "PVC Banner (440gsm)",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1570.0,
+    "pricePerLm": 3.0,
+    "maxPrintWidthMm": 1570.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-contravision",
+    "name": "Metamark ContraVision",
+    "category": "printable",
+    "rollWidthMm": 1370.0,
+    "rollPrintableWidthMm": 1340.0,
+    "pricePerLm": 22.5,
+    "maxPrintWidthMm": 1340.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "silver-frost-image-perfect",
+    "name": "Silver Frost (Image Perfect)",
+    "category": "printable",
+    "rollWidthMm": 1220.0,
+    "rollPrintableWidthMm": 1190.0,
+    "pricePerLm": 6.29,
+    "maxPrintWidthMm": 1190.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "magnetic-mounted-with-mono-vinyl-lam",
+    "name": "Magnetic (Mounted with Mono Vinyl & Lam)",
+    "category": "printable",
+    "rollWidthMm": 610.0,
+    "rollPrintableWidthMm": 610.0,
+    "pricePerLm": 12.0,
+    "maxPrintWidthMm": 610.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "magnetic-mounted-with-poly-vinyl-lam",
+    "name": "Magnetic (Mounted with Poly Vinyl & Lam)",
+    "category": "printable",
+    "rollWidthMm": 610.0,
+    "rollPrintableWidthMm": 610.0,
+    "pricePerLm": 15.0,
+    "maxPrintWidthMm": 610.0,
+    "maxCutWidthMm": null
+  },
+  {
+    "id": "metamark-md7-solid-colours-610",
+    "name": "Metamark MD7 Solid Colours 610",
+    "category": "solid",
+    "rollWidthMm": 610.0,
+    "rollPrintableWidthMm": 590.0,
+    "pricePerLm": 4.0,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 590.0
+  },
+  {
+    "id": "metamark-md7-solid-colours-1220",
+    "name": "Metamark MD7 Solid Colours 1220",
+    "category": "solid",
+    "rollWidthMm": 1220.0,
+    "rollPrintableWidthMm": 1190.0,
+    "pricePerLm": 5.75,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 1190.0
+  },
+  {
+    "id": "metamark-md7-metalics-610",
+    "name": "Metamark MD7 Metalics 610",
+    "category": "solid",
+    "rollWidthMm": 610.0,
+    "rollPrintableWidthMm": 590.0,
+    "pricePerLm": 4.0,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 590.0
+  },
+  {
+    "id": "metamark-md7-metalics-1220",
+    "name": "Metamark MD7 Metalics 1220",
+    "category": "solid",
+    "rollWidthMm": 1220.0,
+    "rollPrintableWidthMm": 1190.0,
+    "pricePerLm": 6.29,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 1190.0
+  },
+  {
+    "id": "silver-frost-image-perfect-610",
+    "name": "Silver Frost (Image Perfect) 610",
+    "category": "solid",
+    "rollWidthMm": 610.0,
+    "rollPrintableWidthMm": 590.0,
+    "pricePerLm": 4.0,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 590.0
+  },
+  {
+    "id": "silver-frost-image-perfect-1220",
+    "name": "Silver Frost (Image Perfect) 1220",
+    "category": "solid",
+    "rollWidthMm": 1220.0,
+    "rollPrintableWidthMm": 1190.0,
+    "pricePerLm": 6.29,
+    "maxPrintWidthMm": null,
+    "maxCutWidthMm": 1190.0
+  }
+]
