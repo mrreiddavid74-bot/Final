@@ -248,7 +248,7 @@ export function priceSingle(
     notes.push(...n)
     tiles = columns
 
-    // 🔧 multiply by quantity (total LM across all copies)
+    // multiply by quantity (total LM across all copies)
     const lmTotal = lm * Math.max(1, input.qty)
 
     // Printed jobs include one-off job waste
@@ -320,7 +320,7 @@ export function priceSingle(
   const preDelivery = (base + upliftAmount) * profit
 
   const { band, price: bandPrice } = deliveryFromGirth(s, input.widthMm, input.heightMm)
-  // bandPrice is already absolute (includes base where applicable). Do NOT add base again.
+  // bandPrice is already absolute (includes base where applicable)
   const delivery = bandPrice
 
   const total = preDelivery + delivery
@@ -328,7 +328,9 @@ export function priceSingle(
   return {
     materials: +materials.toFixed(2),
     ink: +ink.toFixed(2),
+    setup: +setup.toFixed(2),                 // ✅ included per your PriceBreakdown type
     cutting: +cutting.toFixed(2),
+    finishingUplift: +upliftAmount.toFixed(2),// ✅ included per your PriceBreakdown type
     preDelivery: +preDelivery.toFixed(2),
     delivery: +delivery.toFixed(2),
     total: +total.toFixed(2),
