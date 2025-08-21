@@ -292,13 +292,13 @@ export default function SinglePage() {
             <h2 className="h2 mb-2">Materials</h2>
 
             <div className="flex flex-col gap-3">
-              <label className={`label ${isSubstrateProduct ? 'opacity-50' : ''}`}>
+              <label className={`label ${input.mode === 'SubstrateOnly' ? 'opacity-50' : ''}`}>
                 Vinyl / Media
                 <select
                     className="select mt-1"
                     value={input.vinylId}
-                    onChange={(e) => setInput({ ...input, vinylId: e.target.value })}
-                    disabled={input.mode === 'SubstrateOnly'}
+                    onChange={e => setInput({ ...input, vinylId: e.target.value })}
+                    disabled={input.mode === 'SubstrateOnly'}  // only truly disabled in this one mode
                 >
                   {vinylList.map((v) => (
                       <option key={v.id} value={v.id}>
