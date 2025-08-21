@@ -31,16 +31,32 @@ export type Settings = {
   applicationTapePerSqm?: number    // alias for appTapePerSqm
   inkCostPerSqm?: number            // alias for inkElecPerSqm
 
-  // Optional finishing uplifts (by finishing key, e.g., 0.05 = +5%)
+  // Optional finishing uplifts
   finishingUplifts?: Partial<Record<Finishing, number>>
 
-  // Delivery bands
+  // ✅ NEW: per-sticker complexity surcharges
+  complexityPerSticker?: Partial<Record<Complexity, number>>
+
+  // Delivery (flat / legacy)
   deliveryBase?: number
   deliveryBands?: { maxSumCm: number; surcharge: number }[]
+
+  // ✅ NEW: nested delivery (what normalizeSettings returns)
+  delivery?: {
+    baseFee: number
+    bands: Array<{
+      maxGirthCm?: number
+      maxSumCm?: number
+      price?: number
+      surcharge?: number
+      name?: string
+    }>
+  }
 
   // VAT (optional)
   vatRatePct?: number
 }
+
 
 export type VinylMedia = {
   id: string
@@ -96,10 +112,16 @@ export type SubstrateCostItem = {
   cost: number
 }
 
+// types.ts
 export type PriceBreakdown = {
   // Money
   materials: number
   ink: number
+
+  // add these two to match your return:
+  setup: number
+  finishingUplift: number
+
   cutting: number
   preDelivery: number
   delivery: number
@@ -122,3 +144,4 @@ export type PriceBreakdown = {
     substrate: SubstrateCostItem[]
   }
 }
+
