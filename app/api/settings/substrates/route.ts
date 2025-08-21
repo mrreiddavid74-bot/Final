@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getSubstrates, setSubstrates, SubstrateRow } from '@/lib/settingsStore'
 
@@ -12,22 +11,26 @@ function parseCSV(text: string): SubstrateRow[] {
   const [h, ...rows] = text.trim().split(/\r?\n/)
   const cols = h.split(',').map(s => s.trim())
   return rows.filter(Boolean).map(line => {
-    const parts = line.split(',')
+    const parts = line.split(',').map(s => s.trim())
     const obj: any = {}
-    cols.forEach((c, i) => obj[c] = parts[i])
-    return {
-      name: String(obj.name),
-      sizeW: Number(obj.sizeW),
-      sizeH: Number(obj.sizeH),
-      pricePerSheet: Number(obj.pricePerSheet),
-      thicknessMm: obj.thicknessMm ? Number(obj.thicknessMm) : undefined,
-    }
+    cols.forEach((c, i) => obj[c] = parts[i] ?? '')
+    ;['sizeW','sizeH','pricePerSheet','thicknessMm'].forEach(k => {
+      if (obj[k] !== '') obj[k] = Number(obj[k])
+    })
+    return obj as SubstrateRow
   })
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const wantsJson = req.nextUrl.searchParams.get('format') === 'json'
+      || (req.headers.get('accept') || '').includes('application/json')
+
+  if (wantsJson) return NextResponse.json(getSubstrates())
   return new NextResponse(toCSV(getSubstrates()), {
-    headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="substrates.csv"' }
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': 'attachment; filename="substrates.csv"'
+    }
   })
 }
 

@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getVinylMedia, setVinylMedia, VinylRow } from '@/lib/settingsStore'
 
@@ -12,24 +11,27 @@ function parseCSV(text: string): VinylRow[] {
   const [h, ...rows] = text.trim().split(/\r?\n/)
   const cols = h.split(',').map(s => s.trim())
   return rows.filter(Boolean).map(line => {
-    const parts = line.split(',')
+    const parts = line.split(',').map(s => s.trim())
     const obj: any = {}
-    cols.forEach((c, i) => obj[c] = parts[i])
-    return {
-      name: String(obj.name),
-      rollWidthMm: Number(obj.rollWidthMm),
-      rollPrintableWidthMm: Number(obj.rollPrintableWidthMm || obj.rollWidthMm),
-      pricePerLm: Number(obj.pricePerLm),
-      maxPrintWidthMm: obj.maxPrintWidthMm ? Number(obj.maxPrintWidthMm) : undefined,
-      maxCutWidthMm: obj.maxCutWidthMm ? Number(obj.maxCutWidthMm) : undefined,
-      category: obj.category || undefined
-    }
+    cols.forEach((c, i) => obj[c] = parts[i] ?? '')
+    // coerce numbers
+    ;['rollWidthMm','rollPrintableWidthMm','pricePerLm','maxPrintWidthMm','maxCutWidthMm'].forEach(k => {
+      if (obj[k] !== '') obj[k] = Number(obj[k])
+    })
+    return obj as VinylRow
   })
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const wantsJson = req.nextUrl.searchParams.get('format') === 'json'
+      || (req.headers.get('accept') || '').includes('application/json')
+
+  if (wantsJson) return NextResponse.json(getVinylMedia())
   return new NextResponse(toCSV(getVinylMedia()), {
-    headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="vinyl_media.csv"' }
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': 'attachment; filename="vinyl.csv"'
+    }
   })
 }
 

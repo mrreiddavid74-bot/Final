@@ -1,17 +1,20 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import Card from '../../components/Card'
-import { DEFAULT_MEDIA, DEFAULT_SETTINGS, DEFAULT_SUBSTRATES } from '../../lib/defaults'
-import { priceSingle } from '../../lib/pricing'
+import { useEffect, useMemo, useState } from 'react'
+import Card from '@/components/Card'
+import { DEFAULT_MEDIA, DEFAULT_SETTINGS, DEFAULT_SUBSTRATES } from '@/lib/defaults'
+import { priceSingle } from '@/lib/pricing'
 import type {
   Mode,
   Orientation,
   Finishing,
   Complexity,
+  VinylMedia,
+  Substrate,
   PriceBreakdown,
-} from '../../lib/types'
+} from '@/lib/types'
 
+// UI options
 const MODES: { id: Mode; label: string }[] = [
   { id: 'SolidColourCutVinyl', label: 'Solid Colour Cut Vinyl Only' },
   { id: 'PrintAndCutVinyl', label: 'Print & Cut Vinyl' },
@@ -19,6 +22,37 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'PrintedVinylOnSubstrate', label: 'Printed Vinyl mounted to a substrate' },
   { id: 'SubstrateOnly', label: 'Substrate Only' },
 ]
+
+// Helpers: coerce uploaded CSV rows into strict app types (generate ids if missing)
+function coerceVinylRows(rows: any[]): VinylMedia[] {
+  return (rows || []).map((r, i) => {
+    const id = r.id || `${(r.name || 'vinyl').toLowerCase().replace(/\s+/g, '-')}-${i}`
+    return {
+      id,
+      name: String(r.name ?? `Vinyl ${i + 1}`),
+      rollWidthMm: Number(r.rollWidthMm ?? r.rollPrintableWidthMm ?? 0),
+      rollPrintableWidthMm: Number(r.rollPrintableWidthMm ?? r.rollWidthMm ?? 0),
+      pricePerLm: Number(r.pricePerLm ?? 0),
+      category: r.category ?? undefined,
+      maxPrintWidthMm: r.maxPrintWidthMm != null ? Number(r.maxPrintWidthMm) : undefined,
+      maxCutWidthMm: r.maxCutWidthMm != null ? Number(r.maxCutWidthMm) : undefined,
+    }
+  }).filter(v => v.rollWidthMm > 0 && v.rollPrintableWidthMm > 0)
+}
+
+function coerceSubstrateRows(rows: any[]): Substrate[] {
+  return (rows || []).map((r, i) => {
+    const id = r.id || `${(r.name || 'substrate').toLowerCase().replace(/\s+/g, '-')}-${i}`
+    return {
+      id,
+      name: String(r.name ?? `Substrate ${i + 1}`),
+      sizeW: Number(r.sizeW ?? 0),
+      sizeH: Number(r.sizeH ?? 0),
+      pricePerSheet: Number(r.pricePerSheet ?? 0),
+      thicknessMm: r.thicknessMm != null ? Number(r.thicknessMm) : undefined,
+    }
+  }).filter(s => s.sizeW > 0 && s.sizeH > 0)
+}
 
 type SingleForm = {
   mode: Mode
@@ -36,6 +70,11 @@ type SingleForm = {
 }
 
 export default function SinglePage() {
+  // Materials (live lists) → start with defaults; upgrade to uploaded CSV lists if available
+  const [vinylList, setVinylList] = useState<VinylMedia[]>(DEFAULT_MEDIA)
+  const [substrateList, setSubstrateList] = useState<Substrate[]>(DEFAULT_SUBSTRATES)
+
+  // Selected input
   const [input, setInput] = useState<SingleForm>({
     mode: 'PrintedVinylOnly',
     widthMm: 1000,
@@ -51,20 +90,43 @@ export default function SinglePage() {
     panelOrientation: 'Vertical',
   })
 
-  const result = useMemo<PriceBreakdown | { error: string }>(() => {
-    try {
-      // IMPORTANT: priceSingle expects 4 positional args
-      return priceSingle(
-          { ...input, settings: DEFAULT_SETTINGS }, // SingleSignInput
-          DEFAULT_MEDIA,                              // VinylMedia[]
-          DEFAULT_SUBSTRATES,                         // Substrate[]
-          DEFAULT_SETTINGS                            // Settings
-      )
-    } catch (e: any) {
-      return { error: e?.message ?? 'Error' }
+  // On mount: try to fetch uploaded CSV data (served as JSON)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const [vRes, sRes] = await Promise.all([
+          fetch('/api/settings/vinyl?format=json', { cache: 'no-store' }),
+          fetch('/api/settings/substrates?format=json', { cache: 'no-store' }),
+        ])
+        const [vRows, sRows] = await Promise.all([vRes.json().catch(() => []), sRes.json().catch(() => [])])
+
+        const v = Array.isArray(vRows) ? coerceVinylRows(vRows) : []
+        const s = Array.isArray(sRows) ? coerceSubstrateRows(sRows) : []
+
+        if (!cancelled) {
+          if (v.length) {
+            setVinylList(v)
+            // If current vinylId is missing in new list, set first
+            if (!v.find(x => x.id === input.vinylId)) {
+              setInput(prev => ({ ...prev, vinylId: v[0]?.id }))
+            }
+          }
+          if (s.length) {
+            setSubstrateList(s)
+            if (!s.find(x => x.id === input.substrateId)) {
+              setInput(prev => ({ ...prev, substrateId: s[0]?.id }))
+            }
+          }
+        }
+      } catch {
+        // ignore → stay on defaults
+      }
     }
+    load()
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input])
+  }, [])
 
   const isVinylOnly =
       input.mode === 'SolidColourCutVinyl' ||
@@ -73,6 +135,20 @@ export default function SinglePage() {
 
   const isSubstrateProduct =
       input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly'
+
+  // Price calculation (uses current materials + defaults settings)
+  const result = useMemo<PriceBreakdown | { error: string }>(() => {
+    try {
+      return priceSingle(
+          { ...input, settings: DEFAULT_SETTINGS }, // SingleSignInput (settings optional)
+          vinylList,
+          substrateList,
+          DEFAULT_SETTINGS
+      )
+    } catch (e: any) {
+      return { error: e?.message ?? 'Error' }
+    }
+  }, [input, vinylList, substrateList])
 
   return (
       <div className="space-y-6">
@@ -224,7 +300,7 @@ export default function SinglePage() {
                     onChange={(e) => setInput({ ...input, vinylId: e.target.value })}
                     disabled={input.mode === 'SubstrateOnly'}
                 >
-                  {DEFAULT_MEDIA.map((v) => (
+                  {vinylList.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.name}
                       </option>
@@ -240,7 +316,7 @@ export default function SinglePage() {
                     onChange={(e) => setInput({ ...input, substrateId: e.target.value })}
                     disabled={isVinylOnly}
                 >
-                  {DEFAULT_SUBSTRATES.map((s) => (
+                  {substrateList.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
