@@ -1,4 +1,12 @@
-import { Settings, VinylMedia, Substrate, SingleSignInput, PriceBreakdown, Finishing, Orientation } from './types'
+import {
+  Settings,
+  VinylMedia,
+  Substrate,
+  SingleSignInput,
+  PriceBreakdown,
+  Finishing,
+  Orientation,
+} from './types'
 import { normalizeSettings } from './settings-normalize'
 
 const mm2ToSqm = (mm2: number) => mm2 / 1_000_000
@@ -21,7 +29,7 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
   }
 }
 
-/** Compute vinyl tiling into columns given max/effective print width. Returns columns and lm before +1m waste. */
+/** Auto-tiling a single sign across print width; returns columns and LM for one copy. */
 export function tileVinylByWidth(
     pieceW: number,
     pieceH: number,
@@ -31,15 +39,12 @@ export function tileVinylByWidth(
 ): { columns: number; lm: number; notes: string[] } {
   const denom = Math.max(1, effectivePrintW - overlapMm)
   const columns = Math.ceil((pieceW + overlapMm) / denom)
-  const lm = columns * (pieceH + gutterMm) / 1000 // stack columns sequentially down the roll
+  const lm = (columns * (pieceH + gutterMm)) / 1000 // stack columns down the roll
   const notes = [`Tiled into ${columns} column(s) @ ${effectivePrintW}mm max print width`]
   return { columns, lm, notes }
 }
 
-/**
- * For solid cut vinyl (no printing): pack rectangles across cut width.
- * Simple heuristic: items per row = floor(effectiveCutW / (w + gutter)), rows = ceil(qty/itemsPerRow)
- */
+/** Solid cut vinyl packing across cut width (no printing). */
 export function cutVinylUtilisation(
     w: number,
     h: number,
@@ -49,15 +54,12 @@ export function cutVinylUtilisation(
 ): { lm: number; perRow: number; rows: number; notes: string[] } {
   const perRow = Math.max(1, Math.floor(effectiveCutW / (w + gutter)))
   const rows = Math.ceil(qty / perRow)
-  const lm = rows * (h + gutter) / 1000
+  const lm = (rows * (h + gutter)) / 1000
   const notes = [`${perRow}/row across ${effectiveCutW}mm cut width, ${rows} row(s)`]
   return { lm, perRow, rows, notes }
 }
 
-/**
- * Substrate charging by fraction (¼/½/¾/full). We approximate utilisation by area ratio and round up.
- * You can replace with a guillotine/shelf packer later for Mixed Signs.
- */
+/** Sheet substrate fraction helper (¼/½/¾/full) by area ratio. */
 export function substrateFraction(
     signW: number,
     signH: number,
@@ -78,27 +80,27 @@ export function substrateFraction(
   return { fraction, usagePct: clamp(u * 100, 0, 100) }
 }
 
+/** Delivery pricing (nested or flat config) by simple girth (L+W+H) in cm. */
 export function deliveryFromGirth(
     settings: Settings,
     wMm: number,
     hMm: number,
     tMm = 10
 ): { band: string; price: number } {
-  // Simple girth L+W+H in cm. Thickness tMm default 10mm; adjust as needed.
   const s: any = settings as any
   const girthCm = (wMm + hMm + tMm) / 10
 
-  // 1) Nested: settings.delivery = { baseFee, bands: [{ maxGirthCm|maxSumCm, price|surcharge, name? }] }
+  type BandNorm = { max: number; price: number; name: string }
+
+  // 1) Nested: delivery.baseFee + bands[]
   if (s.delivery?.bands?.length) {
-    const bands = s.delivery.bands
-    const pick = (b: any) => ({
+    const pick = (b: any): BandNorm => ({
       max:
           typeof b.maxGirthCm === 'number'
               ? b.maxGirthCm
               : typeof b.maxSumCm === 'number'
                   ? b.maxSumCm
                   : Infinity,
-      // price is absolute if present; else baseFee + surcharge; else baseFee
       price:
           typeof b.price === 'number'
               ? b.price
@@ -111,29 +113,105 @@ export function deliveryFromGirth(
               typeof b.maxGirthCm === 'number' ? b.maxGirthCm : b.maxSumCm ?? 0
           )} cm`,
     })
-    const norm = bands
+
+    const norm: BandNorm[] = (s.delivery.bands as any[])
         .map(pick)
-        .sort((a: any, b: any) => a.max - b.max)
-    const band = norm.find((b: any) => girthCm <= b.max) || norm.at(-1)!
+        .sort((a: BandNorm, b: BandNorm) => a.max - b.max)
+
+    const band: BandNorm = norm.find((b: BandNorm) => girthCm <= b.max) || norm.at(-1)!
     return { band: band.name, price: band.price }
   }
 
-  // 2) Flat: settings.deliveryBase + settings.deliveryBands (surcharge)
+  // 2) Flat: deliveryBase + deliveryBands[] (surcharge)
   if (typeof s.deliveryBase === 'number' && Array.isArray(s.deliveryBands)) {
     const base = s.deliveryBase
-    const norm = s.deliveryBands
-        .map((b: any) => ({
+
+    const norm: BandNorm[] = (s.deliveryBands as any[])
+        .map((b: any): BandNorm => ({
           max: b.maxGirthCm ?? b.maxSumCm ?? Infinity,
-          price: base + (b.surcharge ?? 0), // absolute
+          price: base + (b.surcharge ?? 0),
           name: b.name ?? `${Math.round(b.maxGirthCm ?? b.maxSumCm ?? 0)} cm`,
         }))
-        .sort((a: any, b: any) => a.max - b.max)
-    const band = norm.find((b: any) => girthCm <= b.max) || norm.at(-1)!
+        .sort((a: BandNorm, b: BandNorm) => a.max - b.max)
+
+    const band: BandNorm = norm.find((b: BandNorm) => girthCm <= b.max) || norm.at(-1)!
     return { band: band.name, price: band.price }
   }
 
-  // Fallback: no delivery configured
   return { band: 'N/A', price: 0 }
+}
+
+/** Step & repeat identical signs across roll width (printed jobs). */
+function repeatAcrossWidth(
+    pieceW: number,  // sign width incl. margin
+    pieceH: number,  // sign height incl. margin
+    qty: number,
+    effectivePrintW: number,
+    gutterMm: number
+): { perRow: number; rows: number; lmTotal: number; notes: string[] } {
+  const notes: string[] = []
+  const perRow = Math.max(1, Math.floor(effectivePrintW / (pieceW + gutterMm)))
+  const rows = Math.max(1, Math.ceil(qty / perRow))
+  const lmTotal = (rows * (pieceH + gutterMm)) / 1000 // length advanced down the roll
+  notes.push(`${perRow}/row across ${effectivePrintW}mm print width, ${rows} row(s)`)
+  return { perRow, rows, lmTotal, notes }
+}
+
+/** Optional: panelisation helper (respect user-forced panel count). */
+function tileWithPanels(
+    pieceW: number,
+    pieceH: number,
+    effectivePrintW: number,
+    overlapMm: number,
+    gutterMm: number,
+    panelCount: number,
+    orientation: Orientation | undefined
+): { tiles: number; lmPerSign: number; notes: string[] } {
+  const notes: string[] = []
+  if (!panelCount || panelCount <= 0) {
+    const { columns, lm, notes: n } = tileVinylByWidth(
+        pieceW, pieceH, effectivePrintW, overlapMm, gutterMm
+    )
+    notes.push(...n)
+    return { tiles: columns, lmPerSign: lm, notes }
+  }
+
+  // Vertical: split width into N drops
+  if (orientation !== 'Horizontal') {
+    const requiredPanelW = (pieceW + overlapMm * (panelCount - 1)) / panelCount
+    if (requiredPanelW <= effectivePrintW) {
+      const columns = panelCount
+      const lm = (columns * (pieceH + gutterMm)) / 1000
+      notes.push(`Forced ${columns} vertical panel(s)`)
+      return { tiles: columns, lmPerSign: lm, notes }
+    } else {
+      notes.push(
+          `Requested ${panelCount} vertical panel(s) exceed ${effectivePrintW}mm; auto-tiling used`
+      )
+      const { columns, lm, notes: n } = tileVinylByWidth(
+          pieceW, pieceH, effectivePrintW, overlapMm, gutterMm
+      )
+      notes.push(...n)
+      return { tiles: columns, lmPerSign: lm, notes }
+    }
+  }
+
+  // Horizontal: split height into N strips (width must fit across roll)
+  if (pieceW <= effectivePrintW) {
+    const rows = panelCount
+    const lm = (rows * (pieceW + gutterMm)) / 1000
+    notes.push(`Forced ${rows} horizontal panel(s)`)
+    return { tiles: rows, lmPerSign: lm, notes }
+  } else {
+    notes.push(
+        `Requested horizontal panels but width ${pieceW}mm exceeds ${effectivePrintW}mm; auto-tiling used`
+    )
+    const { columns, lm, notes: n } = tileVinylByWidth(
+        pieceW, pieceH, effectivePrintW, overlapMm, gutterMm
+    )
+    notes.push(...n)
+    return { tiles: columns, lmPerSign: lm, notes }
+  }
 }
 
 export function priceSingle(
@@ -145,7 +223,7 @@ export function priceSingle(
   const s = normalizeSettings(settings as any)
   const notes: string[] = []
 
-  // Ink area only for printed modes
+  // Ink area (printed modes only)
   const areaSqm =
       input.mode === 'SolidColourCutVinyl' || input.mode === 'SubstrateOnly'
           ? 0
@@ -161,14 +239,16 @@ export function priceSingle(
     pricePerSheet: number
     cost: number
   }[] = []
+
   const inkRate = (s.inkCostPerSqm ?? s.inkElecPerSqm ?? 0)
   let ink = areaSqm * inkRate
   const setup = s.setupFee
   let cutting = s.cutPerSign * input.qty
 
-  // report-only; folded into totals later
+  // report-only fields (we include uplift value in the return)
   let finishingUpliftPct = 0
 
+  // stats
   let vinylLmRaw = 0
   let vinylLmWithWaste = 0
   let tiles = 0
@@ -176,7 +256,7 @@ export function priceSingle(
   let sheetsUsed: number | undefined
   let usagePct: number | undefined
 
-  // Common fetches
+  // lookups
   const mediaItem = input.vinylId ? media.find(m => m.id === input.vinylId) : undefined
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
@@ -187,12 +267,12 @@ export function priceSingle(
     vinylLmWithWaste = lmWithWaste
   }
 
+  // --- Solid cut vinyl ---
   if (input.mode === 'SolidColourCutVinyl') {
     if (!mediaItem) throw new Error('Select a vinyl media')
     const { effectiveCutWidthMm } = getEffectiveWidths(mediaItem, s)
     const gutter = s.vinylMarginMm
 
-    // width/height include margins for packing
     const { lm, perRow, rows, notes: n } = cutVinylUtilisation(
         input.widthMm + s.vinylMarginMm,
         input.heightMm + s.vinylMarginMm,
@@ -206,16 +286,14 @@ export function priceSingle(
       media: mediaItem.name,
       lm: +lm.toFixed(3) as unknown as number,
       pricePerLm: mediaItem.pricePerLm,
-      cost: +(lm * mediaItem.pricePerLm).toFixed(2)
+      cost: +(lm * mediaItem.pricePerLm).toFixed(2),
     })
 
-    // Complexity cost (per sticker) — optional map
     const _cps = (s as any).complexityPerSticker as Partial<Record<string, number>> | undefined
     if (input.complexity && _cps && typeof _cps[input.complexity] === 'number') {
       cutting += (_cps[input.complexity] as number) * input.qty
     }
 
-    // Application tape included by default unless explicitly disabled
     if (input.applicationTape !== false) {
       const tapeArea = mm2ToSqm(
           (input.widthMm + s.vinylMarginMm) * (input.heightMm + s.vinylMarginMm) * input.qty
@@ -224,11 +302,11 @@ export function priceSingle(
       materials += tapeArea * tapeRate
     }
 
-    // Finishing uplifts (applied to base later)
     const fin: Finishing = input.finishing ?? 'None'
     finishingUpliftPct = (s as any).finishingUplifts?.[fin] ?? 0
   }
 
+  // --- Printed vinyl (with/without cut; with/without substrate) ---
   if (
       input.mode === 'PrintedVinylOnly' ||
       input.mode === 'PrintAndCutVinyl' ||
@@ -237,38 +315,68 @@ export function priceSingle(
     if (!mediaItem) throw new Error('Select a printable media')
     const { effectivePrintWidthMm, effectiveCutWidthMm } = getEffectiveWidths(mediaItem, s)
 
-    // Tiling for ONE sign
-    const { columns, lm, notes: n } = tileVinylByWidth(
-        input.widthMm + s.vinylMarginMm,
-        input.heightMm + s.vinylMarginMm,
-        effectivePrintWidthMm,
-        s.tileOverlapMm,
-        s.vinylMarginMm
-    )
-    notes.push(...n)
-    tiles = columns
+    const pieceW = input.widthMm + s.vinylMarginMm
+    const pieceH = input.heightMm + s.vinylMarginMm
+    const forcedPanels = Math.max(0, input.panelSplits ?? 0)
 
-    // multiply by quantity (total LM across all copies)
-    const lmTotal = lm * Math.max(1, input.qty)
+    let lmTotal = 0
+    let tilesLocal = 0
+    const localNotes: string[] = []
 
-    // Printed jobs include one-off job waste
+    if (forcedPanels > 0) {
+      const { tiles: t, lmPerSign, notes: pn } = tileWithPanels(
+          pieceW,
+          pieceH,
+          effectivePrintWidthMm,
+          s.tileOverlapMm,
+          s.vinylMarginMm,
+          forcedPanels,
+          input.panelOrientation
+      )
+      tilesLocal = t
+      lmTotal = lmPerSign * Math.max(1, input.qty)
+      localNotes.push(...pn, `Forced panels × qty → ${lmTotal.toFixed(2)} lm`)
+    } else if (input.qty > 1) {
+      const rep = repeatAcrossWidth(
+          pieceW,
+          pieceH,
+          input.qty,
+          effectivePrintWidthMm,
+          s.vinylMarginMm
+      )
+      lmTotal = rep.lmTotal
+      tilesLocal = rep.perRow
+      localNotes.push('Step & repeat across width', ...rep.notes)
+    } else {
+      const { columns, lm, notes: n } = tileVinylByWidth(
+          pieceW,
+          pieceH,
+          effectivePrintWidthMm,
+          s.tileOverlapMm,
+          s.vinylMarginMm
+      )
+      tilesLocal = columns
+      lmTotal = lm
+      localNotes.push(...n)
+    }
+
+    notes.push(...localNotes)
+    tiles = tilesLocal
+
     addVinylCost(lmTotal, mediaItem.pricePerLm, /* printed */ true)
 
-    // Cost line reflects total LM
     vinylCostItems.push({
       media: mediaItem.name,
       lm: +lmTotal.toFixed(3) as unknown as number,
       pricePerLm: mediaItem.pricePerLm,
-      cost: +(lmTotal * mediaItem.pricePerLm).toFixed(2)
+      cost: +(lmTotal * mediaItem.pricePerLm).toFixed(2),
     })
 
-    // If contour cutting required, ensure tiles also fit cut width
     const needsCut = input.mode !== 'PrintedVinylOnly' && (input.finishing && input.finishing !== 'None')
     if (needsCut && effectiveCutWidthMm < effectivePrintWidthMm) {
       notes.push(`Cut limited to ${effectiveCutWidthMm}mm; printing at ${effectivePrintWidthMm}mm`)
     }
 
-    // Application tape default for Print&Cut is off unless toggled
     if (input.mode !== 'PrintedVinylOnly' && input.applicationTape) {
       const tapeArea = mm2ToSqm(
           (input.widthMm + s.vinylMarginMm) * (input.heightMm + s.vinylMarginMm) * input.qty
@@ -277,60 +385,58 @@ export function priceSingle(
       materials += tapeArea * tapeRate
     }
 
-    // Finishing uplift (applied to base later)
     const fin: Finishing = input.finishing ?? 'None'
     finishingUpliftPct = (s as any).finishingUplifts?.[fin] ?? 0
-
-    // Explain qty multiplier in notes
-    notes.push(`Qty multiplier: ${input.qty} × ${lm.toFixed(2)} lm/sign = ${lmTotal.toFixed(2)} lm total`)
   }
 
+  // --- Substrate costs ---
   if (input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly') {
     if (!substrateItem) throw new Error('Select a substrate')
 
-    // Compute needed sheets by area (qty * sign area / usable sheet area)
     const usableW = Math.max(0, substrateItem.sizeW - 2 * s.substrateMarginMm)
     const usableH = Math.max(0, substrateItem.sizeH - 2 * s.substrateMarginMm)
     const usableArea = Math.max(1, usableW * usableH)
     const signArea = input.widthMm * input.heightMm
+
     const neededSheetsRaw = (signArea * input.qty) / usableArea
     const chargedSheets = Math.ceil(neededSheetsRaw > 0 ? neededSheetsRaw : 0)
     sheetsUsed = chargedSheets
-    const sheetCost = substrateItem.pricePerSheet
 
+    const sheetCost = substrateItem.pricePerSheet
     materials += sheetCost * chargedSheets
+
     sheetFraction = (neededSheetsRaw <= 1
         ? (neededSheetsRaw <= 0.25 ? 0.25 : neededSheetsRaw <= 0.5 ? 0.5 : neededSheetsRaw <= 0.75 ? 0.75 : 1)
         : 1) as 0.25 | 0.5 | 0.75 | 1
+
     usagePct = Math.max(0, Math.min(100, (signArea / usableArea) * 100))
+
     substrateCostItems.push({
       material: substrateItem.name,
-      sheet: substrateItem.sizeW + '×' + substrateItem.sizeH,
+      sheet: `${substrateItem.sizeW}×${substrateItem.sizeH}`,
       neededSheets: +neededSheetsRaw.toFixed(2),
       chargedSheets,
       pricePerSheet: +sheetCost.toFixed(2),
-      cost: +(chargedSheets * sheetCost).toFixed(2)
+      cost: +(chargedSheets * sheetCost).toFixed(2),
     })
   }
 
-  // Totals
+  // --- Totals ---
   const base = setup + materials + ink + cutting
   const upliftAmount = finishingUpliftPct > 0 ? finishingUpliftPct * base : 0
-  const profit = (s.profitMultiplier ?? 1)
+  const profit = s.profitMultiplier ?? 1
   const preDelivery = (base + upliftAmount) * profit
 
   const { band, price: bandPrice } = deliveryFromGirth(s, input.widthMm, input.heightMm)
-  // bandPrice is already absolute (includes base where applicable)
   const delivery = bandPrice
-
   const total = preDelivery + delivery
 
   return {
     materials: +materials.toFixed(2),
     ink: +ink.toFixed(2),
-    setup: +setup.toFixed(2),                 // ✅ included per your PriceBreakdown type
+    setup: +setup.toFixed(2),
     cutting: +cutting.toFixed(2),
-    finishingUplift: +upliftAmount.toFixed(2),// ✅ included per your PriceBreakdown type
+    finishingUplift: +upliftAmount.toFixed(2),
     preDelivery: +preDelivery.toFixed(2),
     delivery: +delivery.toFixed(2),
     total: +total.toFixed(2),
@@ -344,6 +450,6 @@ export function priceSingle(
     wastePct: usagePct ? +(100 - usagePct).toFixed(1) : undefined,
     deliveryBand: band,
     costs: { vinyl: vinylCostItems, substrate: substrateCostItems },
-    notes
+    notes,
   }
 }
