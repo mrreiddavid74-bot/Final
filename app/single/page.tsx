@@ -259,18 +259,23 @@ export default function SinglePage() {
   }, [ready, input, media, substrates])
 
   /** Split size result text */
+// Split size result text (now multiplied by Quantity)
   const splitPreview = useMemo(() => {
-    const n = input.panelSplits || 0
+    const n = input.panelSplits ?? 0
     const N = n === 0 ? 1 : n
     const ori: Orientation = input.panelOrientation ?? 'Vertical'
     const W = input.widthMm || 0
     const H = input.heightMm || 0
+    const qty = input.qty || 1
 
     const panelW = ori === 'Vertical' ? W / N : W
     const panelH = ori === 'Vertical' ? H : H / N
-    const panelsText = `${n === 0 ? 1 : n} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm`
+
+    const totalPanels = qty * N
+    const panelsText = `${totalPanels} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm`
+
     return { panelsText, panelW, panelH }
-  }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
+  }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm, input.qty])
 
   return (
       <div className="space-y-6">
