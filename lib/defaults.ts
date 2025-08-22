@@ -2,9 +2,8 @@ import type { Settings, VinylMedia, Substrate } from './types'
 
 export const DEFAULT_SETTINGS: Settings = {
   // Machine/global limits
-  masterMaxPrintWidthMm: 1340,
-  masterMaxCutWidthMm: 1340,
-
+  masterMaxPrintWidthMm: 0,
+  masterMaxCutWidthMm: 0,
   // Margins & overlaps
   vinylMarginMm: 5,
   substrateMarginMm: 5,

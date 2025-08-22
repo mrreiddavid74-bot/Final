@@ -13,13 +13,17 @@ const mm2ToSqm = (mm2: number) => mm2 / 1_000_000
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n))
 
 export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
+  // 0 or negative => "no machine cap"
+  const machinePrintCap = settings.masterMaxPrintWidthMm > 0 ? settings.masterMaxPrintWidthMm : Infinity
+  const machineCutCap   = settings.masterMaxCutWidthMm   > 0 ? settings.masterMaxCutWidthMm   : Infinity
+
   const printCaps = [
-    settings.masterMaxPrintWidthMm,
+    machinePrintCap,
     media.rollPrintableWidthMm,
     media.maxPrintWidthMm ?? Infinity,
   ]
   const cutCaps = [
-    settings.masterMaxCutWidthMm,
+    machineCutCap,
     media.rollWidthMm,
     media.maxCutWidthMm ?? Infinity,
   ]
@@ -28,6 +32,8 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
     effectiveCutWidthMm: Math.min(...cutCaps),
   }
 }
+
+
 
 /** Auto-tiling a single sign across print width; returns columns and LM for one copy. */
 export function tileVinylByWidth(
