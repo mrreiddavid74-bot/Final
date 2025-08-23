@@ -13,6 +13,7 @@ import type {
   Substrate,
   SingleSignInput,
   PriceBreakdown,
+  Settings,
 } from '../../lib/types'
 
 const MODES: { id: Mode; label: string }[] = [
@@ -32,9 +33,10 @@ const sizeKey = (w?: number, h?: number) => `${w ?? 0}x${h ?? 0}`
 const MAX_SPLITS = 6
 
 export default function SinglePage() {
-  /** Materials (loaded from API; API prefers lib/preloaded, then /public, then defaults) */
+  /** Materials */
   const [media, setMedia] = useState<VinylMedia[]>([])
   const [substrates, setSubstrates] = useState<Substrate[]>([])
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
 
   /** User input */
@@ -46,33 +48,37 @@ export default function SinglePage() {
     vinylId: undefined,
     substrateId: undefined,
     doubleSided: false,
-    finishing: 'None' as Finishing,        // kept for pricing compatibility
-    complexity: 'Standard' as Complexity,  // kept for pricing compatibility
-    applicationTape: false,                // kept for print&cut case; not shown here
-    panelSplits: 0,                        // 0 = None (substrate)
+    finishing: 'None' as Finishing,
+    complexity: 'Standard' as Complexity,
+    applicationTape: false,
+    panelSplits: 0, // substrate splits: 0 = None
     panelOrientation: 'Vertical' as Orientation,
   })
 
-  /** VINYL split options UI state */
-  const [vinylAuto, setVinylAuto] = useState(true) // Yes (Auto Tile) by default
-  const [vinylSplits, setVinylSplits] = useState<number>(0) // 0 = None (1 piece)
+  /** Vinyl split options UI */
+  const [vinylAuto, setVinylAuto] = useState(true) // Yes (Auto Tile) default
+  const [vinylSplits, setVinylSplits] = useState<number>(0) // 0 = None (one piece)
   const [vinylOrientation, setVinylOrientation] = useState<Orientation>('Vertical')
 
-  /** Which substrate **name group** is selected (unique names) */
+  /** Grouping key for substrates */
   const [subGroupKey, setSubGroupKey] = useState<string | null>(null)
 
-  /** Fetch materials */
+  /** Fetch materials + setup (settings) */
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [m, s] = await Promise.all([
+        const [m, s, setup] = await Promise.all([
           fetch('/api/settings/vinyl', { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
           fetch('/api/settings/substrates', { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
+          fetch('/api/settings/setup', { cache: 'no-store' })
+              .then(r => (r.ok ? r.json() : null))
+              .catch(() => null),
         ])
         if (cancelled) return
         setMedia(Array.isArray(m) ? m : [])
         setSubstrates(Array.isArray(s) ? s : [])
+        setSettings(setup && typeof setup === 'object' ? { ...DEFAULT_SETTINGS, ...setup } : DEFAULT_SETTINGS)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -90,7 +96,7 @@ export default function SinglePage() {
     )
   }, [media])
 
-  /** Build substrate groups: unique by base name; de-dupe sizes and sort sizes by area, then width */
+  /** Build substrate groups: unique by base name; de-dupe sizes and sort */
   type SubGroup = { key: string; displayName: string; variants: Substrate[] }
   const subGroups: SubGroup[] = useMemo(() => {
     const map = new Map<string, Substrate[]>()
@@ -119,7 +125,7 @@ export default function SinglePage() {
     return groups
   }, [substrates])
 
-  /** Sync selected group with selected substrate id; initialise both */
+  /** Keep substrate group in sync with selected id */
   useEffect(() => {
     if (!subGroups.length) return
     setInput(prev => {
@@ -154,7 +160,7 @@ export default function SinglePage() {
     )
   }, [subGroupKey, subGroups])
 
-  /** Convenience flags */
+  /** Convenience flags (declare ONCE) */
   const isVinylOnly =
       input.mode === 'SolidColourCutVinyl' ||
       input.mode === 'PrintAndCutVinyl' ||
@@ -178,22 +184,24 @@ export default function SinglePage() {
   /** Effective printable width (respect master cap unless it's 0) */
   const effectivePrintWidthMm = useMemo(() => {
     if (!currentMedia) return 0
-    const master = DEFAULT_SETTINGS.masterMaxPrintWidthMm || Infinity
+    const master = settings.masterMaxPrintWidthMm && settings.masterMaxPrintWidthMm > 0
+        ? settings.masterMaxPrintWidthMm
+        : Infinity
     const caps = [
       master,
       currentMedia.rollPrintableWidthMm,
       currentMedia.maxPrintWidthMm ?? Infinity,
     ].map(v => (typeof v === 'number' && isFinite(v) ? v : Infinity))
     return Math.min(...caps)
-  }, [currentMedia])
+  }, [currentMedia, settings.masterMaxPrintWidthMm])
 
   /** Usable sheet dims (margin aware) */
   const usableSheet = useMemo(() => {
     if (!currentSubVariant) return { w: 0, h: 0 }
-    const w = Math.max(0, (currentSubVariant.sizeW ?? 0) - 2 * (DEFAULT_SETTINGS.substrateMarginMm ?? 0))
-    const h = Math.max(0, (currentSubVariant.sizeH ?? 0) - 2 * (DEFAULT_SETTINGS.substrateMarginMm ?? 0))
+    const w = Math.max(0, (currentSubVariant.sizeW ?? 0) - 2 * (settings.substrateMarginMm ?? 0))
+    const h = Math.max(0, (currentSubVariant.sizeH ?? 0) - 2 * (settings.substrateMarginMm ?? 0))
     return { w, h }
-  }, [currentSubVariant])
+  }, [currentSubVariant, settings.substrateMarginMm])
 
   /** Fit check allowing rotation on the sheet */
   function fitsOnSheet(panelW: number, panelH: number) {
@@ -204,11 +212,9 @@ export default function SinglePage() {
   /** For a given orientation, which split counts are allowed on this sheet? */
   const allowedSplitsForOrientation = useMemo(() => {
     const res: Record<Orientation, number[]> = { Vertical: [], Horizontal: [] }
-
     const W = input.widthMm || 0
     const H = input.heightMm || 0
 
-    // None (0) is orientation-agnostic
     const noneAllowed = fitsOnSheet(W, H)
     if (noneAllowed) {
       res.Vertical.push(0)
@@ -216,7 +222,6 @@ export default function SinglePage() {
     }
 
     for (let n = 2; n <= MAX_SPLITS; n++) {
-      // Vertical: split width into n columns; Horizontal: split height into n rows
       const vw = W / n, vh = H
       const hw = W,    hh = H / n
       if (fitsOnSheet(vw, vh)) res.Vertical.push(n)
@@ -258,7 +263,7 @@ export default function SinglePage() {
     }
   }, [allowedSplitsForOrientation, isSubstrateProduct, currentSubVariant, input.panelOrientation, input.panelSplits])
 
-  /** Ready to price? */
+  /** Ready to price? (declare ONCE) */
   const needsVinyl = input.mode !== 'SubstrateOnly'
   const needsSub   = isSubstrateProduct
 
@@ -271,13 +276,13 @@ export default function SinglePage() {
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
-      return priceSingle({ ...input }, media, substrates, DEFAULT_SETTINGS)
+      return priceSingle({ ...input }, media, substrates, settings)
     } catch (e: any) {
       return { error: e?.message ?? 'Error' }
     }
-  }, [ready, input, media, substrates])
+  }, [ready, input, media, substrates, settings])
 
-  /** Split size result text (substrate) multiplied by quantity */
+  /** Split size result text (substrate) × quantity */
   const splitPreview = useMemo(() => {
     const n = input.panelSplits ?? 0
     const N = n === 0 ? 1 : n
@@ -298,7 +303,7 @@ export default function SinglePage() {
   // ---------------- Vinyl Split Options helpers ----------------
 
   function packAcrossWidthLm(pieceW: number, pieceH: number, effW: number, qty: number) {
-    const gutter = DEFAULT_SETTINGS.vinylMarginMm || 0
+    const gutter = settings.vinylMarginMm || 0
     const perRow = Math.max(1, Math.floor(effW / (pieceW + gutter)))
     const rows = Math.ceil(qty / perRow)
     const totalMm = rows * pieceH + Math.max(0, rows - 1) * gutter
@@ -306,8 +311,8 @@ export default function SinglePage() {
   }
 
   function tileColumnsLm(pieceW: number, pieceH: number, effW: number, qty: number) {
-    const overlap = DEFAULT_SETTINGS.tileOverlapMm || 0
-    const gutter = DEFAULT_SETTINGS.vinylMarginMm || 0
+    const overlap = settings.tileOverlapMm || 0
+    const gutter = settings.vinylMarginMm || 0
     const denom = Math.max(1, effW - overlap)
     const columns = Math.ceil((pieceW + overlap) / denom)
     const totalMm = columns * (pieceH + gutter) * qty
@@ -321,44 +326,52 @@ export default function SinglePage() {
     const qty = input.qty || 1
 
     if (!showVinylSplitCard || !currentMedia || !isFinite(effW) || effW <= 0) {
-      return { text: '—', totalLm: 0, totalMm: 0, usedN: 1, usedOri: 'Vertical' as Orientation }
+      return { text: '—', totalLm: 0, totalMm: 0 }
     }
 
-    // AUTO: keep one piece if we can, rotate so the shortest side goes across roll
+    // ---------- AUTO: choose orientation that MINIMIZES LENGTH ----------
     if (vinylAuto) {
-      const short = Math.min(W, H)
       const long = Math.max(W, H)
+      const short = Math.min(W, H)
 
-      if (short <= effW) {
-        const { perRow, rows, totalMm, totalLm } = packAcrossWidthLm(short, long, effW, qty)
-        const text = `${rows > 1 ? `${rows} row(s), ` : ''}${perRow} per row — 1 × ${Math.round(short)} × ${Math.round(long)}mm`
-        return { text, totalLm, totalMm, usedN: 1, usedOri: short === W ? 'Horizontal' as Orientation : 'Vertical' as Orientation }
+      if (long <= effW) {
+        const pieceW = long, pieceH = short
+        const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
+        const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — 1 × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
+        return { text, totalLm: p.totalLm, totalMm: p.totalMm }
       }
 
-      // both sides too wide: compare tiling with and without rotation
+      if (short <= effW) {
+        const pieceW = short, pieceH = long
+        const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
+        const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — 1 × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
+        return { text, totalLm: p.totalLm, totalMm: p.totalMm }
+      }
+
       const v = tileColumnsLm(W, H, effW, qty)
       const h = tileColumnsLm(H, W, effW, qty)
-      const pick = v.totalMm <= h.totalMm
-          ? { label: `(${v.columns} col) ${Math.round(W)} × ${Math.round(H)}mm`, ...v, ori: 'Vertical' as Orientation }
-          : { label: `(${h.columns} col) ${Math.round(H)} × ${Math.round(W)}mm`, ...h, ori: 'Horizontal' as Orientation }
-      return { text: pick.label, totalLm: pick.totalLm, totalMm: pick.totalMm, usedN: 1, usedOri: pick.ori }
+      const pick = v.totalMm <= h.totalMm ? v : h
+      const label =
+          pick === v
+              ? `(${v.columns} col) ${Math.round(W)} × ${Math.round(H)}mm`
+              : `(${h.columns} col) ${Math.round(H)} × ${Math.round(W)}mm`
+      return { text: label, totalLm: pick.totalLm, totalMm: pick.totalMm }
     }
 
-    // CUSTOM (Auto = No): honor splits & orientation
+    // ---------- CUSTOM: honor split count & orientation ----------
     const parts = Math.max(0, Math.min(MAX_SPLITS, vinylSplits | 0)) || 1
     const ori: Orientation = vinylOrientation
-
     const pieceW = ori === 'Vertical' ? W / parts : W
     const pieceH = ori === 'Vertical' ? H : H / parts
 
     if (pieceW <= effW) {
-      const { perRow, rows, totalMm, totalLm } = packAcrossWidthLm(pieceW, pieceH, effW, qty)
-      const text = `${rows > 1 ? `${rows} row(s), ` : ''}${perRow} per row — ${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
-      return { text, totalLm, totalMm, usedN: parts, usedOri: ori }
+      const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
+      const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — ${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
+      return { text, totalLm: p.totalLm, totalMm: p.totalMm }
     } else {
       const t = tileColumnsLm(pieceW, pieceH, effW, qty)
-      const text = `${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm (${t.totalMm >= 1000 ? (t.totalMm / 1000).toFixed(2) + 'm' : `${t.totalMm}mm`})`
-      return { text, totalLm: t.totalLm, totalMm: t.totalMm, usedN: parts, usedOri: ori }
+      const text = `${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
+      return { text, totalLm: t.totalLm, totalMm: t.totalMm }
     }
   }, [
     showVinylSplitCard,
@@ -370,10 +383,11 @@ export default function SinglePage() {
     input.widthMm,
     input.heightMm,
     input.qty,
+    settings.vinylMarginMm,
+    settings.tileOverlapMm,
   ])
 
   // ---------------- UI ----------------
-
   return (
       <div className="space-y-6">
         <h1 className="h1">Single Sign</h1>
