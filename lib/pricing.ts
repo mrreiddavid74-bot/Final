@@ -271,14 +271,17 @@ export function priceSingle(
   const total = preDelivery + delivery
 
   return {
+    // Money
     materials: +materials.toFixed(2),
     ink: +ink.toFixed(2),
+    setup: +setup.toFixed(2),                    // <-- added
     cutting: +cutting.toFixed(2),
+    finishingUplift: +finishingUplift.toFixed(2),// <-- added
     preDelivery: +preDelivery.toFixed(2),
     delivery: +delivery.toFixed(2),
     total: +total.toFixed(2),
 
-    // extras
+    // Stats
     vinylLm: vinylLm ? +vinylLm.toFixed(3) : undefined,
     vinylLmWithWaste: vinylLm ? +vinylLm.toFixed(3) : undefined,
     tiles,
@@ -287,7 +290,10 @@ export function priceSingle(
     usagePct: usagePct ? +usagePct.toFixed(1) : undefined,
     wastePct: usagePct ? +(100 - usagePct).toFixed(1) : undefined,
     deliveryBand: band,
+
+    // Detailed cost items (optional)
     costs: { vinyl: vinylCostItems, substrate: substrateCostItems },
     notes
   }
+
 }
