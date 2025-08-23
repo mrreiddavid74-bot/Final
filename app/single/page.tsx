@@ -196,10 +196,8 @@ export default function SinglePage() {
       res.Horizontal.push(0)
     }
     for (let n = 2; n <= MAX_SPLITS; n++) {
-      const vw = W / n,
-          vh = H
-      const hw = W,
-          hh = H / n
+      const vw = W / n, vh = H
+      const hw = W,    hh = H / n
       if (fitsOnSheet(vw, vh)) res.Vertical.push(n)
       if (fitsOnSheet(hw, hh)) res.Horizontal.push(n)
     }
@@ -255,11 +253,22 @@ export default function SinglePage() {
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
-      return priceSingle({ ...input }, media, substrates, DEFAULT_SETTINGS)
+      return priceSingle(
+          {
+            ...input,
+            // keep costs in sync with the "Vinyl Split Options" UI
+            vinylAuto: vinylAutoMode === 'auto',
+            vinylSplitOverride: vinylAutoMode === 'custom' ? vinylSplitOverride : 0,
+            vinylSplitOrientation: vinylOrientation,
+          },
+          media,
+          substrates,
+          DEFAULT_SETTINGS
+      )
     } catch (e: any) {
       return { error: e?.message ?? 'Error' }
     }
-  }, [ready, input, media, substrates])
+  }, [ready, input, media, substrates, vinylAutoMode, vinylSplitOverride, vinylOrientation])
 
   // Substrate split preview
   const splitPreview = useMemo(() => {
@@ -332,27 +341,22 @@ export default function SinglePage() {
 
     // ---- CUSTOM OVERRIDE ----
     const n = Math.max(1, vinylSplitOverride)
-    let cols = 1,
-        tileW = W,
-        tileH = H
-    if (n > 1) {
-      if (vinylOrientation === 'Vertical') {
-        cols = n
-        tileW = W / n
-        tileH = H
-      } else {
-        cols = 1
-        tileW = W
-        tileH = H / n
-      }
-    }
-    const across = perRow(tileW)
-    const rows = Math.ceil(((Q * cols) as number) / across)
-    const lm = (rows * (tileH + gutter)) / 1000
+    const ori: Orientation = vinylOrientation
+
+    // piece size per tile
+    const pieceW = ori === 'Vertical' ? W / n : W
+    const pieceH = ori === 'Vertical' ? H : H / n
+
+    // every sign is made of n pieces (both orientations)
+    const piecesPerSign = n
+
+    const across = perRow(pieceW) // how many tiles across the roll
+    const rows = Math.ceil((Q * piecesPerSign) / Math.max(1, across))
+    const lm = (rows * (pieceH + gutter)) / 1000
 
     const disp =
         n > 1
-            ? `${across} per row — ${n} × ${Math.round(tileW)} × ${Math.round(tileH)}mm`
+            ? `${across} per row — ${n} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
             : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
 
     return {
@@ -662,8 +666,7 @@ export default function SinglePage() {
                     <b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}
                   </div>
                   <div>
-                    <b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}
-                  </div>
+                    <b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}</div>
                   <div>
                     <b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}
                   </div>
