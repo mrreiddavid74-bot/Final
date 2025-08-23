@@ -77,16 +77,16 @@ export default function SinglePage() {
         if (!cancelled) setLoading(false)
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
   // Ensure a valid vinyl selection
   useEffect(() => {
     if (!media.length) return
     setInput(prev =>
-        prev.vinylId && media.some(m => m.id === prev.vinylId) ? prev : { ...prev, vinylId: media[0].id },
+        prev.vinylId && media.some(m => m.id === prev.vinylId)
+            ? prev
+            : { ...prev, vinylId: media[0].id },
     )
   }, [media])
 
@@ -249,14 +249,13 @@ export default function SinglePage() {
       (!needsVinyl || (!!input.vinylId && media.some(m => m.id === input.vinylId))) &&
       (!needsSub || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
 
-  // Pricing (guarded)
+  // Pricing (guarded, keep in sync with Vinyl Split Options)
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
       return priceSingle(
           {
             ...input,
-            // keep costs in sync with the "Vinyl Split Options" UI
             vinylAuto: vinylAutoMode === 'auto',
             vinylSplitOverride: vinylAutoMode === 'custom' ? vinylSplitOverride : 0,
             vinylSplitOrientation: vinylOrientation,
@@ -290,11 +289,7 @@ export default function SinglePage() {
 
     // effective printable width: master cap (0 means ignore) + media caps
     const masterCap = DEFAULT_SETTINGS.masterMaxPrintWidthMm || Infinity
-    const effW = Math.min(
-        masterCap,
-        m.rollPrintableWidthMm,
-        m.maxPrintWidthMm ?? Infinity,
-    )
+    const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
 
     const gutter = DEFAULT_SETTINGS.vinylMarginMm ?? 0
     const overlap = DEFAULT_SETTINGS.tileOverlapMm ?? 0
@@ -302,26 +297,29 @@ export default function SinglePage() {
     const H = input.heightMm || 0
     const Q = Math.max(1, input.qty || 1)
 
-    const perRow = (tileW: number) => Math.max(1, Math.floor(effW / (tileW + gutter)))
+    const perRow = (tileAcross: number) => Math.max(1, Math.floor(effW / (tileAcross + gutter)))
+    const mmText = (mm: number) => `${Math.round(mm)}mm (${(mm / 1000).toFixed(2)}m)`
 
     // ---- AUTO (rotate to avoid tiling if possible) ----
     if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
       const fitsAsIs = W <= effW
       const fitsRot = H <= effW
 
-      // If one-piece fits (possibly rotated), show original size but compute minimal LM
       if (fitsAsIs || fitsRot) {
-        // Choose the orientation that minimises row height
-        const rowHeight = (fitsAsIs && fitsRot) ? Math.min(H, W) : (fitsAsIs ? H : W)
-        const across = (fitsAsIs && fitsRot)
-            ? Math.max(1, Math.floor(effW / (Math.min(W, H) + gutter)))
-            : perRow(fitsAsIs ? W : H)
-
-        const rows = Math.ceil(Q / across)
-        const lm = (rows * (rowHeight + gutter)) / 1000
+        // try both orientations (if both fit) and pick the shorter total length
+        const tryOrient = (acrossDim: number, lengthDim: number) => {
+          const pieces = Q
+          const across = perRow(acrossDim)
+          const rows = Math.ceil(pieces / across)
+          const total = rows * lengthDim + pieces * gutter
+          return { across, rows, total }
+        }
+        const a = fitsAsIs ? tryOrient(W, H) : null
+        const b = fitsRot ? tryOrient(H, W) : null
+        const pick = (a && b) ? (a.total <= b.total ? a : b) : (a || b)!
         return {
-          text: `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`,
-          lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
+          text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`,
+          lmText: mmText(pick.total),
         }
       }
 
@@ -329,40 +327,68 @@ export default function SinglePage() {
       const denom = Math.max(1, effW - overlap)
       const cols = Math.ceil((W + overlap) / denom)
       const tileW = W / cols
+      const pieces = Q * cols
       const across = perRow(tileW)
-      const rows = Math.ceil((Q * cols) / across)
-      const lm = (rows * (H + gutter)) / 1000
+      const rows = Math.ceil(pieces / across)
+      const total = rows * H + pieces * gutter
 
       return {
         text: `${across} per row — ${cols} × ${Math.round(W / cols)} × ${Math.round(H)}mm`,
-        lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
+        lmText: mmText(total),
       }
     }
 
     // ---- CUSTOM OVERRIDE ----
     const n = Math.max(1, vinylSplitOverride)
-    const ori: Orientation = vinylOrientation
+    const baseW = vinylOrientation === 'Vertical' ? W / n : W
+    const baseH = vinylOrientation === 'Vertical' ? H : H / n
+    const pieces = Q * n
 
-    // piece size per tile
-    const pieceW = ori === 'Vertical' ? W / n : W
-    const pieceH = ori === 'Vertical' ? H : H / n
+    // candidates that FIT across the roll (ignore invalid ones)
+    type Cand = { across: number; rows: number; total: number }
+    const candidates: Cand[] = []
 
-    // every sign is made of n pieces (both orientations)
-    const piecesPerSign = n
+    const tryIfFits = (acrossDim: number, lengthDim: number) => {
+      if (acrossDim <= effW) {
+        const across = perRow(acrossDim)
+        const rows = Math.ceil(pieces / across)
+        const total = rows * lengthDim + pieces * gutter
+        candidates.push({ across, rows, total })
+      }
+    }
 
-    const across = perRow(pieceW) // how many tiles across the roll
-    const rows = Math.ceil((Q * piecesPerSign) / Math.max(1, across))
-    const lm = (rows * (pieceH + gutter)) / 1000
+    // as-is + rotated
+    tryIfFits(baseW, baseH)
+    tryIfFits(baseH, baseW)
+
+    if (candidates.length > 0) {
+      const pick = candidates.reduce((a, b) => (a.total <= b.total ? a : b))
+      const disp =
+          n > 1
+              ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
+              : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+      return { text: disp, lmText: mmText(pick.total) }
+    }
+
+    // If neither orientation fits across the roll, fall back to tiling columns.
+    const denom = Math.max(1, effW - overlap)
+    const colsA = Math.ceil((baseW + overlap) / denom)
+    const colsB = Math.ceil((baseH + overlap) / denom)
+    const useRot = colsB < colsA
+    const lengthDim = useRot ? baseW : baseH
+    const acrossDim = useRot ? baseH : baseW
+    const cols = Math.max(1, Math.min(MAX_SPLITS, useRot ? colsB : colsA))
+    const tileAcross = acrossDim / cols
+    const across = perRow(tileAcross)
+    const rows = Math.ceil((pieces * cols) / across)
+    const total = rows * lengthDim + (pieces * cols) * gutter
 
     const disp =
         n > 1
-            ? `${across} per row — ${n} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
+            ? `${across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
             : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
 
-    return {
-      text: disp,
-      lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
-    }
+    return { text: disp, lmText: mmText(total) }
   }, [
     media,
     input.vinylId,
@@ -573,9 +599,7 @@ export default function SinglePage() {
                       onChange={e => {
                         const v = e.target.value as 'auto' | 'custom'
                         setVinylAutoMode(v)
-                        if (v === 'auto') {
-                          setVinylSplitOverride(0) // reset to None in auto
-                        }
+                        if (v === 'auto') setVinylSplitOverride(0) // reset to None in auto
                       }}
                       disabled={!input.vinylId}
                   >
@@ -662,14 +686,9 @@ export default function SinglePage() {
                       </div>
                   ) : null}
 
-                  <div>
-                    <b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}
-                  </div>
-                  <div>
-                    <b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}</div>
-                  <div>
-                    <b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}
-                  </div>
+                  <div><b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}</div>
+                  <div><b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}</div>
+                  <div><b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}</div>
                   <div className="mt-2 text-2xl font-extrabold">
                     Total (Sell Price): £{(result as PriceBreakdown).total.toFixed(2)}
                   </div>
