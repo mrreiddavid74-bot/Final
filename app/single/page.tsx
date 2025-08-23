@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Card from '../../components/Card'
-import { DEFAULT_SETTINGS } from '../../lib/defaults'
-import { priceSingle } from '../../lib/pricing'
+import { DEFAULT_SETTINGS } from '@/lib/defaults'
+import { priceSingle } from '@/lib/pricing'
 import type {
   Mode,
   Orientation,
@@ -13,7 +13,15 @@ import type {
   Substrate,
   SingleSignInput,
   PriceBreakdown,
-} from '../../lib/types'
+} from '@/lib/types'
+
+// UI pieces
+import ProductCard from '@/components/ProductCard'
+import DimensionsCard from '@/components/DimensionsCard'
+import MaterialsCard from '@/components/MaterialsCard'
+import SubstrateSplitsCard from '@/components/SubstrateSplitsCard'
+import VinylSplitOptionsCard from '@/components/VinylSplitOptionsCard'
+import CostsCard from '@/components/CostsCard'
 
 const MODES: { id: Mode; label: string }[] = [
   { id: 'SolidColourCutVinyl', label: 'Solid Colour Cut Vinyl Only' },
@@ -27,12 +35,12 @@ const MODES: { id: Mode; label: string }[] = [
 const SIZE_SUFFIX_RE = /\s*\(\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*(?:mm)?\s*\)\s*$/i
 const baseName = (name?: string) => (name ?? '').replace(SIZE_SUFFIX_RE, '').trim()
 const nameKey = (name?: string) => baseName(name).toLowerCase()
-const fmtSize = (w?: number, h?: number) => `${w ?? 0} x ${h ?? 0}mm`
 const sizeKey = (w?: number, h?: number) => `${w ?? 0}x${h ?? 0}`
+const fmtSize = (w?: number, h?: number) => `${w ?? 0} x ${h ?? 0}mm`
 const MAX_SPLITS = 6
 
 export default function SinglePage() {
-  // Materials (loaded via API; those routes prefer lib/preloaded/* then /public then defaults)
+  // Materials (loaded via API)
   const [media, setMedia] = useState<VinylMedia[]>([])
   const [substrates, setSubstrates] = useState<Substrate[]>([])
   const [loading, setLoading] = useState(true)
@@ -207,13 +215,11 @@ export default function SinglePage() {
   // Auto-default substrate splits if needed
   useEffect(() => {
     if (!isSubstrateProduct || !currentSubVariant) return
-
     const curOri: Orientation = input.panelOrientation ?? 'Vertical'
     const allowedCur = allowedSplitsForOrientation[curOri]
     const cur = input.panelSplits ?? 0
 
     if (allowedCur.includes(cur)) return
-
     if (allowedCur.includes(0)) {
       setInput(prev => ({ ...prev, panelSplits: 0 }))
       return
@@ -233,13 +239,7 @@ export default function SinglePage() {
     if (smallestOther != null) {
       setInput(prev => ({ ...prev, panelOrientation: otherOri, panelSplits: smallestOther }))
     }
-  }, [
-    allowedSplitsForOrientation,
-    isSubstrateProduct,
-    currentSubVariant,
-    input.panelOrientation,
-    input.panelSplits,
-  ])
+  }, [allowedSplitsForOrientation, isSubstrateProduct, currentSubVariant, input.panelOrientation, input.panelSplits])
 
   // Ready to price?
   const needsVinyl = input.mode !== 'SubstrateOnly'
@@ -249,7 +249,7 @@ export default function SinglePage() {
       (!needsVinyl || (!!input.vinylId && media.some(m => m.id === input.vinylId))) &&
       (!needsSub || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
 
-  // Pricing (guarded, keep in sync with Vinyl Split Options)
+  // Pricing (guarded, kept in sync with Vinyl Split Options)
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
@@ -269,7 +269,7 @@ export default function SinglePage() {
     }
   }, [ready, input, media, substrates, vinylAutoMode, vinylSplitOverride, vinylOrientation])
 
-  // Substrate split preview
+  // Substrate split preview (display only)
   const splitPreview = useMemo(() => {
     const n = input.panelSplits ?? 0
     const N = n === 0 ? 1 : n
@@ -279,15 +279,15 @@ export default function SinglePage() {
     const panelW = ori === 'Vertical' ? W / N : W
     const panelH = ori === 'Vertical' ? H : H / N
     const panelsText = `${n === 0 ? 1 : n} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm`
-    return { panelsText, panelW, panelH }
+    return { panelsText }
   }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
 
-  // ---------- VINYL SPLIT OPTIONS PREVIEW ----------
+  // ---------- VINYL SPLIT OPTIONS PREVIEW (display only) ----------
   const vinylPreview = useMemo(() => {
     const m = media.find(x => x.id === input.vinylId)
     if (!m) return { text: '—', lmText: '—' }
 
-    // effective printable width: master cap (0 means ignore) + media caps
+    // effective printable width
     const masterCap = DEFAULT_SETTINGS.masterMaxPrintWidthMm || Infinity
     const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
 
@@ -297,33 +297,26 @@ export default function SinglePage() {
     const H = input.heightMm || 0
     const Q = Math.max(1, input.qty || 1)
 
-    const perRow = (tileAcross: number) => Math.max(1, Math.floor(effW / (tileAcross + gutter)))
+    const perRow = (acrossDim: number) => Math.max(1, Math.floor(effW / (acrossDim + gutter)))
     const mmText = (mm: number) => `${Math.round(mm)}mm (${(mm / 1000).toFixed(2)}m)`
 
-    // ---- AUTO (rotate to avoid tiling if possible) ----
+    // AUTO (rotate to avoid tiling if possible)
     if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
       const fitsAsIs = W <= effW
       const fitsRot = H <= effW
-
       if (fitsAsIs || fitsRot) {
-        // try both orientations (if both fit) and pick the shorter total length
         const tryOrient = (acrossDim: number, lengthDim: number) => {
-          const pieces = Q
           const across = perRow(acrossDim)
-          const rows = Math.ceil(pieces / across)
-          const total = rows * lengthDim + pieces * gutter
-          return { across, rows, total }
+          const rows = Math.ceil(Q / across)
+          const total = rows * lengthDim + Q * gutter
+          return { across, total }
         }
         const a = fitsAsIs ? tryOrient(W, H) : null
         const b = fitsRot ? tryOrient(H, W) : null
         const pick = (a && b) ? (a.total <= b.total ? a : b) : (a || b)!
-        return {
-          text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`,
-          lmText: mmText(pick.total),
-        }
+        return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.total) }
       }
-
-      // Needs tiling across width into equal columns
+      // needs tiling
       const denom = Math.max(1, effW - overlap)
       const cols = Math.ceil((W + overlap) / denom)
       const tileW = W / cols
@@ -331,21 +324,16 @@ export default function SinglePage() {
       const across = perRow(tileW)
       const rows = Math.ceil(pieces / across)
       const total = rows * H + pieces * gutter
-
-      return {
-        text: `${across} per row — ${cols} × ${Math.round(W / cols)} × ${Math.round(H)}mm`,
-        lmText: mmText(total),
-      }
+      return { text: `${across} per row — ${cols} × ${Math.round(W / cols)} × ${Math.round(H)}mm`, lmText: mmText(total) }
     }
 
-    // ---- CUSTOM OVERRIDE ----
+    // CUSTOM
     const n = Math.max(1, vinylSplitOverride)
     const baseW = vinylOrientation === 'Vertical' ? W / n : W
     const baseH = vinylOrientation === 'Vertical' ? H : H / n
     const pieces = Q * n
 
-    // candidates that FIT across the roll (ignore invalid ones)
-    type Cand = { across: number; rows: number; total: number }
+    type Cand = { across: number; total: number }
     const candidates: Cand[] = []
 
     const tryIfFits = (acrossDim: number, lengthDim: number) => {
@@ -353,24 +341,22 @@ export default function SinglePage() {
         const across = perRow(acrossDim)
         const rows = Math.ceil(pieces / across)
         const total = rows * lengthDim + pieces * gutter
-        candidates.push({ across, rows, total })
+        candidates.push({ across, total })
       }
     }
-
-    // as-is + rotated
+    // as-is + rotated if they fit
     tryIfFits(baseW, baseH)
     tryIfFits(baseH, baseW)
 
     if (candidates.length > 0) {
       const pick = candidates.reduce((a, b) => (a.total <= b.total ? a : b))
-      const disp =
-          n > 1
-              ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
-              : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+      const disp = n > 1
+          ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
+          : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
       return { text: disp, lmText: mmText(pick.total) }
     }
 
-    // If neither orientation fits across the roll, fall back to tiling columns.
+    // If neither fits across, fall back to tiling columns
     const denom = Math.max(1, effW - overlap)
     const colsA = Math.ceil((baseW + overlap) / denom)
     const colsB = Math.ceil((baseH + overlap) / denom)
@@ -383,10 +369,9 @@ export default function SinglePage() {
     const rows = Math.ceil((pieces * cols) / across)
     const total = rows * lengthDim + (pieces * cols) * gutter
 
-    const disp =
-        n > 1
-            ? `${across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
-            : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+    const disp = n > 1
+        ? `${across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
+        : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
 
     return { text: disp, lmText: mmText(total) }
   }, [
@@ -406,306 +391,65 @@ export default function SinglePage() {
 
         {/* Top row: Product / Dimensions / Materials */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card>
-            <h2 className="h2 mb-2">Product</h2>
-            <select
-                className="select"
-                value={input.mode}
-                onChange={e => setInput({ ...input, mode: e.target.value as Mode })}
-            >
-              {MODES.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-              ))}
-            </select>
-          </Card>
-
-          <Card>
-            <h2 className="h2 mb-2">Dimensions</h2>
-            <label className="label">
-              Width (mm)
-              <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={input.widthMm}
-                  onChange={e => setInput({ ...input, widthMm: +e.target.value || 0 })}
-              />
-            </label>
-            <label className="label">
-              Height (mm)
-              <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={input.heightMm}
-                  onChange={e => setInput({ ...input, heightMm: +e.target.value || 0 })}
-              />
-            </label>
-            <label className="label">
-              Quantity
-              <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={input.qty}
-                  onChange={e => setInput({ ...input, qty: Math.max(1, +e.target.value || 1) })}
-              />
-            </label>
-          </Card>
-
-          <Card>
-            <h2 className="h2 mb-2">Materials</h2>
-            <div className="flex flex-col gap-3">
-              <label className={`label ${input.mode === 'SubstrateOnly' ? 'opacity-50' : ''}`}>
-                Vinyl / Media
-                <select
-                    className="select mt-1"
-                    value={input.vinylId ?? ''}
-                    onChange={e => setInput({ ...input, vinylId: e.target.value })}
-                    disabled={input.mode === 'SubstrateOnly' || loading || !media.length}
-                >
-                  {!media.length ? (
-                      <option value="">Loading…</option>
-                  ) : (
-                      media.map(v => (
-                          <option key={v.id} value={v.id}>
-                            {v.name}
-                          </option>
-                      ))
-                  )}
-                </select>
-              </label>
-
-              {/* Substrate (unique names) */}
-              <label className={`label ${isVinylProdOnly ? 'opacity-50' : ''}`}>
-                Substrate
-                <select
-                    className="select mt-1"
-                    value={subGroupKey ?? ''}
-                    onChange={e => {
-                      const k = e.target.value
-                      setSubGroupKey(k)
-                      const g = subGroups.find(x => x.key === k)
-                      if (g?.variants?.length) {
-                        setInput(prev => ({ ...prev, substrateId: g.variants[0].id }))
-                      }
-                    }}
-                    disabled={!isSubstrateProduct || loading || !subGroups.length}
-                >
-                  {!subGroups.length ? (
-                      <option value="">Loading…</option>
-                  ) : (
-                      subGroups.map(g => (
-                          <option key={g.key} value={g.key}>
-                            {g.displayName}
-                          </option>
-                      ))
-                  )}
-                </select>
-              </label>
-
-              {/* Substrate Size for selected name */}
-              <label className={`label ${isSubstrateProduct ? '' : 'opacity-50'}`}>
-                Substrate Size
-                <select
-                    className="select mt-1"
-                    value={input.substrateId ?? ''}
-                    onChange={e => setInput(prev => ({ ...prev, substrateId: e.target.value }))}
-                    disabled={!isSubstrateProduct || loading || !subGroupKey}
-                >
-                  {!subGroupKey ? (
-                      <option value="">Loading…</option>
-                  ) : (
-                      (subGroups.find(g => g.key === subGroupKey)?.variants || []).map(v => (
-                          <option key={v.id} value={v.id}>
-                            {fmtSize(v.sizeW, v.sizeH)}
-                          </option>
-                      ))
-                  )}
-                </select>
-              </label>
-            </div>
-          </Card>
+          <ProductCard
+              modes={MODES}
+              mode={input.mode}
+              onChange={(m) => setInput({ ...input, mode: m })}
+          />
+          <DimensionsCard
+              widthMm={input.widthMm}
+              heightMm={input.heightMm}
+              qty={input.qty}
+              onChange={(patch) => setInput({ ...input, ...patch })}
+          />
+          <MaterialsCard
+              loading={loading}
+              media={media}
+              vinylId={input.vinylId}
+              onVinylChange={(id) => setInput({ ...input, vinylId: id })}
+              isVinylDisabled={input.mode === 'SubstrateOnly'}
+              isSubstrateProduct={isSubstrateProduct}
+              subGroups={subGroups}
+              subGroupKey={subGroupKey}
+              setSubGroupKey={setSubGroupKey}
+              substrateId={input.substrateId}
+              onSubstrateChange={(id) => setInput(prev => ({ ...prev, substrateId: id }))}
+              fmtSize={fmtSize}
+              isVinylProdOnly={isVinylProdOnly}
+          />
         </div>
 
         {/* Second row: Substrate Splits / Vinyl Split Options / Costs */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Substrate Splits */}
-          <Card>
-            <h2 className="h2 mb-2">Substrate Splits</h2>
+          <SubstrateSplitsCard
+              isSubstrateProduct={isSubstrateProduct}
+              currentSubVariant={currentSubVariant}
+              panelSplits={input.panelSplits ?? 0}
+              panelOrientation={input.panelOrientation ?? 'Vertical'}
+              onSplitsChange={(n) => setInput({ ...input, panelSplits: n })}
+              onOrientationChange={(o) => setInput({ ...input, panelOrientation: o })}
+              allowedSplitsForOrientation={allowedSplitsForOrientation}
+              splitPreviewText={splitPreview.panelsText}
+              result={result}
+          />
 
-            <label className="label">
-              Substrate Split Override
-              <select
-                  className="select"
-                  value={input.panelSplits ?? 0}
-                  onChange={e => setInput({ ...input, panelSplits: +e.target.value })}
-                  disabled={!isSubstrateProduct || !currentSubVariant}
-              >
-                {(() => {
-                  const allowed = new Set(allowedSplitsForOrientation[input.panelOrientation ?? 'Vertical'])
-                  const opts: { val: number; label: string; disabled?: boolean }[] = [
-                    { val: 0, label: 'None (1 piece)', disabled: !allowed.has(0) },
-                  ]
-                  for (let n = 2; n <= MAX_SPLITS; n++) {
-                    opts.push({ val: n, label: String(n), disabled: !allowed.has(n) })
-                  }
-                  return opts.map(o => (
-                      <option key={o.val} value={o.val} disabled={!!o.disabled}>
-                        {o.label}
-                      </option>
-                  ))
-                })()}
-              </select>
-            </label>
-
-            <label className={`label ${input.panelSplits === 0 ? 'opacity-50' : ''}`}>
-              Substrate Split Orientation
-              <select
-                  className="select"
-                  value={input.panelOrientation ?? 'Vertical'}
-                  onChange={e => setInput({ ...input, panelOrientation: e.target.value as Orientation })}
-                  disabled={!isSubstrateProduct || !currentSubVariant || input.panelSplits === 0}
-              >
-                <option>Vertical</option>
-                <option>Horizontal</option>
-              </select>
-            </label>
-
-            <div className="mt-2 p-2 rounded bg-slate-50 border">
-              <div className="font-semibold">Split Size Result:</div>
-              <div>{splitPreview.panelsText}</div>
-              <div className="mt-2 font-semibold">Total Full Sheets Required:</div>
-              <div>
-                {typeof (result as PriceBreakdown | null)?.sheetsUsed === 'number' && currentSubVariant
-                    ? `${(result as PriceBreakdown).sheetsUsed} × Sheets of ${currentSubVariant.sizeW} x ${currentSubVariant.sizeH}mm`
-                    : '—'}
-              </div>
-            </div>
-          </Card>
-
-          {/* Vinyl Split Options (only for PrintedVinylOnSubstrate) */}
           {showVinylOptions ? (
-              <Card>
-                <h2 className="h2 mb-2">Vinyl Split Options</h2>
-
-                <label className="label">
-                  Auto rotate to avoid tiling
-                  <select
-                      className="select"
-                      value={vinylAutoMode}
-                      onChange={e => {
-                        const v = e.target.value as 'auto' | 'custom'
-                        setVinylAutoMode(v)
-                        if (v === 'auto') setVinylSplitOverride(0) // reset to None in auto
-                      }}
-                      disabled={!input.vinylId}
-                  >
-                    <option value="auto">Yes (Auto Tile)</option>
-                    <option value="custom">No (Custom Tile)</option>
-                  </select>
-                </label>
-
-                <label className={`label ${vinylAutoMode === 'auto' ? 'opacity-50' : ''}`}>
-                  Vinyl Split Override
-                  <select
-                      className="select"
-                      value={vinylSplitOverride}
-                      onChange={e => setVinylSplitOverride(+e.target.value)}
-                      disabled={vinylAutoMode === 'auto'}
-                  >
-                    <option value={0}>None</option>
-                    {Array.from({ length: MAX_SPLITS - 1 }, (_, i) => i + 2).map(n => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className={`label ${vinylAutoMode === 'auto' || vinylSplitOverride === 0 ? 'opacity-50' : ''}`}>
-                  Vinyl Split Orientation
-                  <select
-                      className="select"
-                      value={vinylOrientation}
-                      onChange={e => setVinylOrientation(e.target.value as Orientation)}
-                      disabled={vinylAutoMode === 'auto' || vinylSplitOverride === 0}
-                  >
-                    <option>Vertical</option>
-                    <option>Horizontal</option>
-                  </select>
-                </label>
-
-                <div className="mt-2 p-2 rounded bg-slate-50 border">
-                  <div className="font-semibold">Split size result:</div>
-                  <div>{vinylPreview.text}</div>
-                  <div className="mt-2 font-semibold">Total Vinyl Length:</div>
-                  <div>{vinylPreview.lmText}</div>
-                </div>
-              </Card>
+              <VinylSplitOptionsCard
+                  hasVinyl={!!input.vinylId}
+                  vinylAutoMode={vinylAutoMode}
+                  setVinylAutoMode={setVinylAutoMode}
+                  vinylSplitOverride={vinylSplitOverride}
+                  setVinylSplitOverride={setVinylSplitOverride}
+                  vinylOrientation={vinylOrientation}
+                  setVinylOrientation={setVinylOrientation}
+                  previewText={vinylPreview.text}
+                  previewLmText={vinylPreview.lmText}
+              />
           ) : (
               <div className="hidden lg:block" />
           )}
 
-          {/* Costs */}
-          <Card>
-            <h2 className="h2 mb-2">Costs</h2>
-
-            {loading || !ready ? (
-                <div className="opacity-70">Select materials to see pricing…</div>
-            ) : 'error' in (result as any) ? (
-                <div className="text-red-600">{String((result as any).error)}</div>
-            ) : (
-                <div className="space-y-2">
-                  {(result as PriceBreakdown)?.costs?.vinyl?.length ? (
-                      <div>
-                        <h3 className="font-semibold">Vinyl</h3>
-                        <ul className="list-disc ml-5">
-                          {(result as PriceBreakdown).costs!.vinyl.map((v, i) => (
-                              <li key={i}>
-                                {v.media}: {v.lm?.toFixed?.(2)} lm × £{v.pricePerLm?.toFixed?.(2)} = <b>£{v.cost?.toFixed?.(2)}</b>
-                              </li>
-                          ))}
-                        </ul>
-                      </div>
-                  ) : null}
-
-                  {(result as PriceBreakdown)?.costs?.substrate?.length ? (
-                      <div>
-                        <h3 className="font-semibold">Substrate</h3>
-                        <ul className="list-disc ml-5">
-                          {(result as PriceBreakdown).costs!.substrate.map((s, i) => (
-                              <li key={i}>
-                                {s.material} — {s.sheet}: need {s.neededSheets} → <b>{s.chargedSheets} full sheets</b> × £
-                                {s.pricePerSheet?.toFixed?.(2)} = <b>£{s.cost?.toFixed?.(2)}</b>
-                              </li>
-                          ))}
-                        </ul>
-                      </div>
-                  ) : null}
-
-                  <div><b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}</div>
-                  <div><b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}</div>
-                  <div><b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}</div>
-                  <div className="mt-2 text-2xl font-extrabold">
-                    Total (Sell Price): £{(result as PriceBreakdown).total.toFixed(2)}
-                  </div>
-
-                  {!!(result as PriceBreakdown).notes?.length && (
-                      <div className="mt-3">
-                        <h3 className="font-semibold">Notes</h3>
-                        <ul className="list-disc ml-5">
-                          {(result as PriceBreakdown).notes!.map((n, i) => (
-                              <li key={i}>{n}</li>
-                          ))}
-                        </ul>
-                      </div>
-                  )}
-                </div>
-            )}
-          </Card>
+          <CostsCard loading={loading} ready={ready} result={result} />
         </div>
       </div>
   )
