@@ -13,7 +13,6 @@ import type {
   Substrate,
   SingleSignInput,
   PriceBreakdown,
-  Settings,
 } from '../../lib/types'
 
 const MODES: { id: Mode; label: string }[] = [
@@ -24,7 +23,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'SubstrateOnly', label: 'Substrate Only' },
 ]
 
-/** helpers */
+// helpers
 const SIZE_SUFFIX_RE = /\s*\(\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*(?:mm)?\s*\)\s*$/i
 const baseName = (name?: string) => (name ?? '').replace(SIZE_SUFFIX_RE, '').trim()
 const nameKey = (name?: string) => baseName(name).toLowerCase()
@@ -33,13 +32,12 @@ const sizeKey = (w?: number, h?: number) => `${w ?? 0}x${h ?? 0}`
 const MAX_SPLITS = 6
 
 export default function SinglePage() {
-  /** Materials */
+  // Materials (loaded via API; those routes prefer lib/preloaded/* then /public then defaults)
   const [media, setMedia] = useState<VinylMedia[]>([])
   const [substrates, setSubstrates] = useState<Substrate[]>([])
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
 
-  /** User input */
+  // User input (panels fields kept for substrate split card)
   const [input, setInput] = useState<SingleSignInput>({
     mode: 'PrintedVinylOnly',
     widthMm: 1000,
@@ -51,52 +49,48 @@ export default function SinglePage() {
     finishing: 'None' as Finishing,
     complexity: 'Standard' as Complexity,
     applicationTape: false,
-    panelSplits: 0, // substrate splits: 0 = None
-    panelOrientation: 'Vertical' as Orientation,
+    panelSplits: 0,
+    panelOrientation: 'Vertical',
   })
 
-  /** Vinyl split options UI */
-  const [vinylAuto, setVinylAuto] = useState(true) // Yes (Auto Tile) default
-  const [vinylSplits, setVinylSplits] = useState<number>(0) // 0 = None (one piece)
-  const [vinylOrientation, setVinylOrientation] = useState<Orientation>('Vertical')
-
-  /** Grouping key for substrates */
+  // Which substrate name group is selected
   const [subGroupKey, setSubGroupKey] = useState<string | null>(null)
 
-  /** Fetch materials + setup (settings) */
+  // --- VINYL SPLIT OPTIONS state ---
+  const [vinylAutoMode, setVinylAutoMode] = useState<'auto' | 'custom'>('auto')
+  const [vinylSplitOverride, setVinylSplitOverride] = useState<number>(0) // 0 = None (1 piece)
+  const [vinylOrientation, setVinylOrientation] = useState<Orientation>('Vertical')
+
+  // Fetch materials
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [m, s, setup] = await Promise.all([
+        const [m, s] = await Promise.all([
           fetch('/api/settings/vinyl', { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
           fetch('/api/settings/substrates', { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
-          fetch('/api/settings/setup', { cache: 'no-store' })
-              .then(r => (r.ok ? r.json() : null))
-              .catch(() => null),
         ])
         if (cancelled) return
         setMedia(Array.isArray(m) ? m : [])
         setSubstrates(Array.isArray(s) ? s : [])
-        setSettings(setup && typeof setup === 'object' ? { ...DEFAULT_SETTINGS, ...setup } : DEFAULT_SETTINGS)
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  /** Ensure a valid vinyl selection */
+  // Ensure a valid vinyl selection
   useEffect(() => {
     if (!media.length) return
     setInput(prev =>
-        prev.vinylId && media.some(m => m.id === prev.vinylId)
-            ? prev
-            : { ...prev, vinylId: media[0].id }
+        prev.vinylId && media.some(m => m.id === prev.vinylId) ? prev : { ...prev, vinylId: media[0].id },
     )
   }, [media])
 
-  /** Build substrate groups: unique by base name; de-dupe sizes and sort */
+  // Build substrate groups (unique by base name), de-dupe sizes
   type SubGroup = { key: string; displayName: string; variants: Substrate[] }
   const subGroups: SubGroup[] = useMemo(() => {
     const map = new Map<string, Substrate[]>()
@@ -125,11 +119,11 @@ export default function SinglePage() {
     return groups
   }, [substrates])
 
-  /** Keep substrate group in sync with selected id */
+  // Sync selected group with current substrate id; initialise both
   useEffect(() => {
     if (!subGroups.length) return
     setInput(prev => {
-      let next = { ...prev }
+      const next = { ...prev }
       if (!prev.substrateId) {
         const g = subGroups[0]
         setSubGroupKey(g.key)
@@ -148,7 +142,7 @@ export default function SinglePage() {
     })
   }, [subGroups])
 
-  /** If group changes, ensure a valid size inside it */
+  // If group changes, ensure a valid size
   useEffect(() => {
     if (!subGroupKey) return
     const g = subGroups.find(x => x.key === subGroupKey)
@@ -156,81 +150,63 @@ export default function SinglePage() {
     setInput(prev =>
         prev.substrateId && g.variants.some(v => v.id === prev.substrateId)
             ? prev
-            : { ...prev, substrateId: g.variants[0]?.id }
+            : { ...prev, substrateId: g.variants[0]?.id },
     )
   }, [subGroupKey, subGroups])
 
-  /** Convenience flags (declare ONCE) */
-  const isVinylOnly =
+  // Convenience flags
+  const isVinylProdOnly =
       input.mode === 'SolidColourCutVinyl' ||
       input.mode === 'PrintAndCutVinyl' ||
       input.mode === 'PrintedVinylOnly'
-
   const isSubstrateProduct =
       input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly'
+  const showVinylOptions = input.mode === 'PrintedVinylOnSubstrate'
 
-  const showVinylSplitCard = input.mode === 'PrintedVinylOnSubstrate'
-
-  /** Current selections */
+  // Current substrate variant
   const currentSubVariant = useMemo(
       () => (input.substrateId ? substrates.find(s => s.id === input.substrateId) : undefined),
-      [substrates, input.substrateId]
-  )
-  const currentMedia = useMemo(
-      () => (input.vinylId ? media.find(m => m.id === input.vinylId) : undefined),
-      [media, input.vinylId]
+      [substrates, input.substrateId],
   )
 
-  /** Effective printable width (respect master cap unless it's 0) */
-  const effectivePrintWidthMm = useMemo(() => {
-    if (!currentMedia) return 0
-    const master = settings.masterMaxPrintWidthMm && settings.masterMaxPrintWidthMm > 0
-        ? settings.masterMaxPrintWidthMm
-        : Infinity
-    const caps = [
-      master,
-      currentMedia.rollPrintableWidthMm,
-      currentMedia.maxPrintWidthMm ?? Infinity,
-    ].map(v => (typeof v === 'number' && isFinite(v) ? v : Infinity))
-    return Math.min(...caps)
-  }, [currentMedia, settings.masterMaxPrintWidthMm])
-
-  /** Usable sheet dims (margin aware) */
+  // Usable sheet dims (margin aware)
   const usableSheet = useMemo(() => {
     if (!currentSubVariant) return { w: 0, h: 0 }
-    const w = Math.max(0, (currentSubVariant.sizeW ?? 0) - 2 * (settings.substrateMarginMm ?? 0))
-    const h = Math.max(0, (currentSubVariant.sizeH ?? 0) - 2 * (settings.substrateMarginMm ?? 0))
+    const w = Math.max(0, (currentSubVariant.sizeW ?? 0) - 2 * (DEFAULT_SETTINGS.substrateMarginMm ?? 0))
+    const h = Math.max(0, (currentSubVariant.sizeH ?? 0) - 2 * (DEFAULT_SETTINGS.substrateMarginMm ?? 0))
     return { w, h }
-  }, [currentSubVariant, settings.substrateMarginMm])
+  }, [currentSubVariant])
 
-  /** Fit check allowing rotation on the sheet */
+  // Fit check allowing rotation on the sheet
   function fitsOnSheet(panelW: number, panelH: number) {
     const { w, h } = usableSheet
     return (panelW <= w && panelH <= h) || (panelW <= h && panelH <= w)
   }
 
-  /** For a given orientation, which split counts are allowed on this sheet? */
+  // Allowed substrate split counts for each orientation
   const allowedSplitsForOrientation = useMemo(() => {
     const res: Record<Orientation, number[]> = { Vertical: [], Horizontal: [] }
     const W = input.widthMm || 0
     const H = input.heightMm || 0
 
+    // None (0)
     const noneAllowed = fitsOnSheet(W, H)
     if (noneAllowed) {
       res.Vertical.push(0)
       res.Horizontal.push(0)
     }
-
     for (let n = 2; n <= MAX_SPLITS; n++) {
-      const vw = W / n, vh = H
-      const hw = W,    hh = H / n
+      const vw = W / n,
+          vh = H
+      const hw = W,
+          hh = H / n
       if (fitsOnSheet(vw, vh)) res.Vertical.push(n)
       if (fitsOnSheet(hw, hh)) res.Horizontal.push(n)
     }
     return res
   }, [input.widthMm, input.heightMm, usableSheet.w, usableSheet.h])
 
-  /** Auto-default substrate split choice when things change */
+  // Auto-default substrate splits if needed
   useEffect(() => {
     if (!isSubstrateProduct || !currentSubVariant) return
 
@@ -244,13 +220,11 @@ export default function SinglePage() {
       setInput(prev => ({ ...prev, panelSplits: 0 }))
       return
     }
-
     const smallest = allowedCur.find(n => n >= 2)
     if (smallest != null) {
       setInput(prev => ({ ...prev, panelSplits: smallest }))
       return
     }
-
     const otherOri: Orientation = curOri === 'Vertical' ? 'Horizontal' : 'Vertical'
     const allowedOther = allowedSplitsForOrientation[otherOri]
     if (allowedOther.includes(0)) {
@@ -261,137 +235,146 @@ export default function SinglePage() {
     if (smallestOther != null) {
       setInput(prev => ({ ...prev, panelOrientation: otherOri, panelSplits: smallestOther }))
     }
-  }, [allowedSplitsForOrientation, isSubstrateProduct, currentSubVariant, input.panelOrientation, input.panelSplits])
+  }, [
+    allowedSplitsForOrientation,
+    isSubstrateProduct,
+    currentSubVariant,
+    input.panelOrientation,
+    input.panelSplits,
+  ])
 
-  /** Ready to price? (declare ONCE) */
+  // Ready to price?
   const needsVinyl = input.mode !== 'SubstrateOnly'
-  const needsSub   = isSubstrateProduct
-
+  const needsSub = isSubstrateProduct
   const ready =
       !loading &&
       (!needsVinyl || (!!input.vinylId && media.some(m => m.id === input.vinylId))) &&
-      (!needsSub   || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
+      (!needsSub || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
 
-  /** Pricing (guarded) */
+  // Pricing (guarded)
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
-      return priceSingle({ ...input }, media, substrates, settings)
+      return priceSingle({ ...input }, media, substrates, DEFAULT_SETTINGS)
     } catch (e: any) {
       return { error: e?.message ?? 'Error' }
     }
-  }, [ready, input, media, substrates, settings])
+  }, [ready, input, media, substrates])
 
-  /** Split size result text (substrate) × quantity */
+  // Substrate split preview
   const splitPreview = useMemo(() => {
     const n = input.panelSplits ?? 0
     const N = n === 0 ? 1 : n
     const ori: Orientation = input.panelOrientation ?? 'Vertical'
     const W = input.widthMm || 0
     const H = input.heightMm || 0
-    const qty = input.qty || 1
-
     const panelW = ori === 'Vertical' ? W / N : W
     const panelH = ori === 'Vertical' ? H : H / N
-
-    const totalPanels = qty * N
-    const panelsText = `${totalPanels} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm`
-
+    const panelsText = `${n === 0 ? 1 : n} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm`
     return { panelsText, panelW, panelH }
-  }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm, input.qty])
+  }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
 
-  // ---------------- Vinyl Split Options helpers ----------------
+  // ---------- VINYL SPLIT OPTIONS PREVIEW ----------
+  const vinylPreview = useMemo(() => {
+    const m = media.find(x => x.id === input.vinylId)
+    if (!m) return { text: '—', lmText: '—' }
 
-  function packAcrossWidthLm(pieceW: number, pieceH: number, effW: number, qty: number) {
-    const gutter = settings.vinylMarginMm || 0
-    const perRow = Math.max(1, Math.floor(effW / (pieceW + gutter)))
-    const rows = Math.ceil(qty / perRow)
-    const totalMm = rows * pieceH + Math.max(0, rows - 1) * gutter
-    return { perRow, rows, totalMm, totalLm: totalMm / 1000 }
-  }
+    // effective printable width: master cap (0 means ignore) + media caps
+    const masterCap = DEFAULT_SETTINGS.masterMaxPrintWidthMm || Infinity
+    const effW = Math.min(
+        masterCap,
+        m.rollPrintableWidthMm,
+        m.maxPrintWidthMm ?? Infinity,
+    )
 
-  function tileColumnsLm(pieceW: number, pieceH: number, effW: number, qty: number) {
-    const overlap = settings.tileOverlapMm || 0
-    const gutter = settings.vinylMarginMm || 0
-    const denom = Math.max(1, effW - overlap)
-    const columns = Math.ceil((pieceW + overlap) / denom)
-    const totalMm = columns * (pieceH + gutter) * qty
-    return { columns, totalMm, totalLm: totalMm / 1000 }
-  }
-
-  const vinylCalc = useMemo(() => {
-    const effW = effectivePrintWidthMm
+    const gutter = DEFAULT_SETTINGS.vinylMarginMm ?? 0
+    const overlap = DEFAULT_SETTINGS.tileOverlapMm ?? 0
     const W = input.widthMm || 0
     const H = input.heightMm || 0
-    const qty = input.qty || 1
+    const Q = Math.max(1, input.qty || 1)
 
-    if (!showVinylSplitCard || !currentMedia || !isFinite(effW) || effW <= 0) {
-      return { text: '—', totalLm: 0, totalMm: 0 }
-    }
+    const perRow = (tileW: number) => Math.max(1, Math.floor(effW / (tileW + gutter)))
 
-    // ---------- AUTO: choose orientation that MINIMIZES LENGTH ----------
-    if (vinylAuto) {
-      const long = Math.max(W, H)
-      const short = Math.min(W, H)
+    // ---- AUTO (rotate to avoid tiling if possible) ----
+    if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
+      const fitsAsIs = W <= effW
+      const fitsRot = H <= effW
 
-      if (long <= effW) {
-        const pieceW = long, pieceH = short
-        const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
-        const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — 1 × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
-        return { text, totalLm: p.totalLm, totalMm: p.totalMm }
+      // If one-piece fits (possibly rotated), show original size but compute minimal LM
+      if (fitsAsIs || fitsRot) {
+        // Choose the orientation that minimises row height
+        const rowHeight = (fitsAsIs && fitsRot) ? Math.min(H, W) : (fitsAsIs ? H : W)
+        const across = (fitsAsIs && fitsRot)
+            ? Math.max(1, Math.floor(effW / (Math.min(W, H) + gutter)))
+            : perRow(fitsAsIs ? W : H)
+
+        const rows = Math.ceil(Q / across)
+        const lm = (rows * (rowHeight + gutter)) / 1000
+        return {
+          text: `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`,
+          lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
+        }
       }
 
-      if (short <= effW) {
-        const pieceW = short, pieceH = long
-        const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
-        const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — 1 × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
-        return { text, totalLm: p.totalLm, totalMm: p.totalMm }
-      }
+      // Needs tiling across width into equal columns
+      const denom = Math.max(1, effW - overlap)
+      const cols = Math.ceil((W + overlap) / denom)
+      const tileW = W / cols
+      const across = perRow(tileW)
+      const rows = Math.ceil((Q * cols) / across)
+      const lm = (rows * (H + gutter)) / 1000
 
-      const v = tileColumnsLm(W, H, effW, qty)
-      const h = tileColumnsLm(H, W, effW, qty)
-      const pick = v.totalMm <= h.totalMm ? v : h
-      const label =
-          pick === v
-              ? `(${v.columns} col) ${Math.round(W)} × ${Math.round(H)}mm`
-              : `(${h.columns} col) ${Math.round(H)} × ${Math.round(W)}mm`
-      return { text: label, totalLm: pick.totalLm, totalMm: pick.totalMm }
+      return {
+        text: `${across} per row — ${cols} × ${Math.round(W / cols)} × ${Math.round(H)}mm`,
+        lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
+      }
     }
 
-    // ---------- CUSTOM: honor split count & orientation ----------
-    const parts = Math.max(0, Math.min(MAX_SPLITS, vinylSplits | 0)) || 1
-    const ori: Orientation = vinylOrientation
-    const pieceW = ori === 'Vertical' ? W / parts : W
-    const pieceH = ori === 'Vertical' ? H : H / parts
+    // ---- CUSTOM OVERRIDE ----
+    const n = Math.max(1, vinylSplitOverride)
+    let cols = 1,
+        tileW = W,
+        tileH = H
+    if (n > 1) {
+      if (vinylOrientation === 'Vertical') {
+        cols = n
+        tileW = W / n
+        tileH = H
+      } else {
+        cols = 1
+        tileW = W
+        tileH = H / n
+      }
+    }
+    const across = perRow(tileW)
+    const rows = Math.ceil(((Q * cols) as number) / across)
+    const lm = (rows * (tileH + gutter)) / 1000
 
-    if (pieceW <= effW) {
-      const p = packAcrossWidthLm(pieceW, pieceH, effW, qty)
-      const text = `${p.rows > 1 ? `${p.rows} row(s), ` : ''}${p.perRow} per row — ${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
-      return { text, totalLm: p.totalLm, totalMm: p.totalMm }
-    } else {
-      const t = tileColumnsLm(pieceW, pieceH, effW, qty)
-      const text = `${parts} × ${Math.round(pieceW)} × ${Math.round(pieceH)}mm`
-      return { text, totalLm: t.totalLm, totalMm: t.totalMm }
+    const disp =
+        n > 1
+            ? `${across} per row — ${n} × ${Math.round(tileW)} × ${Math.round(tileH)}mm`
+            : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+
+    return {
+      text: disp,
+      lmText: `${Math.round(lm * 1000)}mm (${lm.toFixed(2)}m)`,
     }
   }, [
-    showVinylSplitCard,
-    currentMedia,
-    effectivePrintWidthMm,
-    vinylAuto,
-    vinylSplits,
-    vinylOrientation,
+    media,
+    input.vinylId,
     input.widthMm,
     input.heightMm,
     input.qty,
-    settings.vinylMarginMm,
-    settings.tileOverlapMm,
+    vinylAutoMode,
+    vinylSplitOverride,
+    vinylOrientation,
   ])
 
-  // ---------------- UI ----------------
   return (
       <div className="space-y-6">
         <h1 className="h1">Single Sign</h1>
 
+        {/* Top row: Product / Dimensions / Materials */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card>
             <h2 className="h2 mb-2">Product</h2>
@@ -466,7 +449,7 @@ export default function SinglePage() {
               </label>
 
               {/* Substrate (unique names) */}
-              <label className={`label ${isVinylOnly ? 'opacity-50' : ''}`}>
+              <label className={`label ${isVinylProdOnly ? 'opacity-50' : ''}`}>
                 Substrate
                 <select
                     className="select mt-1"
@@ -517,6 +500,7 @@ export default function SinglePage() {
           </Card>
         </div>
 
+        {/* Second row: Substrate Splits / Vinyl Split Options / Costs */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Substrate Splits */}
           <Card>
@@ -531,8 +515,7 @@ export default function SinglePage() {
                   disabled={!isSubstrateProduct || !currentSubVariant}
               >
                 {(() => {
-                  const oriKey: Orientation = input.panelOrientation ?? 'Vertical'
-                  const allowed = new Set(allowedSplitsForOrientation[oriKey])
+                  const allowed = new Set(allowedSplitsForOrientation[input.panelOrientation ?? 'Vertical'])
                   const opts: { val: number; label: string; disabled?: boolean }[] = [
                     { val: 0, label: 'None (1 piece)', disabled: !allowed.has(0) },
                   ]
@@ -574,7 +557,7 @@ export default function SinglePage() {
           </Card>
 
           {/* Vinyl Split Options (only for PrintedVinylOnSubstrate) */}
-          {showVinylSplitCard && (
+          {showVinylOptions ? (
               <Card>
                 <h2 className="h2 mb-2">Vinyl Split Options</h2>
 
@@ -582,36 +565,45 @@ export default function SinglePage() {
                   Auto rotate to avoid tiling
                   <select
                       className="select"
-                      value={vinylAuto ? 'yes' : 'no'}
-                      onChange={e => setVinylAuto(e.target.value === 'yes')}
+                      value={vinylAutoMode}
+                      onChange={e => {
+                        const v = e.target.value as 'auto' | 'custom'
+                        setVinylAutoMode(v)
+                        if (v === 'auto') {
+                          setVinylSplitOverride(0) // reset to None in auto
+                        }
+                      }}
+                      disabled={!input.vinylId}
                   >
-                    <option value="yes">Yes (Auto Tile)</option>
-                    <option value="no">No (Custom Tile)</option>
+                    <option value="auto">Yes (Auto Tile)</option>
+                    <option value="custom">No (Custom Tile)</option>
                   </select>
                 </label>
 
-                <label className="label">
+                <label className={`label ${vinylAutoMode === 'auto' ? 'opacity-50' : ''}`}>
                   Vinyl Split Override
                   <select
                       className="select"
-                      value={vinylSplits}
-                      onChange={e => setVinylSplits(+e.target.value)}
-                      disabled={vinylAuto}
+                      value={vinylSplitOverride}
+                      onChange={e => setVinylSplitOverride(+e.target.value)}
+                      disabled={vinylAutoMode === 'auto'}
                   >
                     <option value={0}>None</option>
-                    {[2, 3, 4, 5, 6].map(n => (
-                        <option key={n} value={n}>{n}</option>
+                    {Array.from({ length: MAX_SPLITS - 1 }, (_, i) => i + 2).map(n => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
                     ))}
                   </select>
                 </label>
 
-                <label className="label">
+                <label className={`label ${vinylAutoMode === 'auto' || vinylSplitOverride === 0 ? 'opacity-50' : ''}`}>
                   Vinyl Split Orientation
                   <select
                       className="select"
                       value={vinylOrientation}
                       onChange={e => setVinylOrientation(e.target.value as Orientation)}
-                      disabled={vinylAuto || vinylSplits === 0}
+                      disabled={vinylAutoMode === 'auto' || vinylSplitOverride === 0}
                   >
                     <option>Vertical</option>
                     <option>Horizontal</option>
@@ -620,15 +612,13 @@ export default function SinglePage() {
 
                 <div className="mt-2 p-2 rounded bg-slate-50 border">
                   <div className="font-semibold">Split size result:</div>
-                  <div>{vinylCalc.text}</div>
+                  <div>{vinylPreview.text}</div>
                   <div className="mt-2 font-semibold">Total Vinyl Length:</div>
-                  <div>
-                    {vinylCalc.totalMm
-                        ? `${Math.round(vinylCalc.totalMm)}mm (${vinylCalc.totalLm.toFixed(2)}m)`
-                        : '—'}
-                  </div>
+                  <div>{vinylPreview.lmText}</div>
                 </div>
               </Card>
+          ) : (
+              <div className="hidden lg:block" />
           )}
 
           {/* Costs */}
@@ -647,8 +637,7 @@ export default function SinglePage() {
                         <ul className="list-disc ml-5">
                           {(result as PriceBreakdown).costs!.vinyl.map((v, i) => (
                               <li key={i}>
-                                {v.media}: {v.lm?.toFixed?.(2)} lm × £{v.pricePerLm?.toFixed?.(2)} ={' '}
-                                <b>£{v.cost?.toFixed?.(2)}</b>
+                                {v.media}: {v.lm?.toFixed?.(2)} lm × £{v.pricePerLm?.toFixed?.(2)} = <b>£{v.cost?.toFixed?.(2)}</b>
                               </li>
                           ))}
                         </ul>
@@ -661,18 +650,23 @@ export default function SinglePage() {
                         <ul className="list-disc ml-5">
                           {(result as PriceBreakdown).costs!.substrate.map((s, i) => (
                               <li key={i}>
-                                {s.material} — {s.sheet}: need {s.neededSheets} →{' '}
-                                <b>{s.chargedSheets} full sheets</b> × £{s.pricePerSheet?.toFixed?.(2)} ={' '}
-                                <b>£{s.cost?.toFixed?.(2)}</b>
+                                {s.material} — {s.sheet}: need {s.neededSheets} → <b>{s.chargedSheets} full sheets</b> × £
+                                {s.pricePerSheet?.toFixed?.(2)} = <b>£{s.cost?.toFixed?.(2)}</b>
                               </li>
                           ))}
                         </ul>
                       </div>
                   ) : null}
 
-                  <div><b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}</div>
-                  <div><b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}</div>
-                  <div><b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}</div>
+                  <div>
+                    <b>Materials Cost:</b> £{(result as PriceBreakdown).materials.toFixed(2)}
+                  </div>
+                  <div>
+                    <b>Sell Cost (pre-delivery):</b> £{(result as PriceBreakdown).preDelivery.toFixed(2)}
+                  </div>
+                  <div>
+                    <b>Delivery:</b> £{(result as PriceBreakdown).delivery.toFixed(2)}
+                  </div>
                   <div className="mt-2 text-2xl font-extrabold">
                     Total (Sell Price): £{(result as PriceBreakdown).total.toFixed(2)}
                   </div>

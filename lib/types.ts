@@ -94,6 +94,9 @@ export type SingleSignInput = {
   panelSplits?: number // 0..6
   panelOrientation?: Orientation
   settings?: Settings
+  vinylAuto?: boolean;                    // default true (auto rotate/minimize)
+  vinylSplitOverride?: number;            // 0 or undefined = None/one-piece
+  vinylSplitOrientation?: Orientation;    // Vertical | Horizontal (only if override)
 }
 
 export type VinylCostItem = {
