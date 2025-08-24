@@ -1,3 +1,4 @@
+// lib/defaults.ts
 import type { Settings, VinylMedia, Substrate } from './types'
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -14,8 +15,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // Costs
   setupFee: 5.0,
   cutPerSign: 0.25,
-  appTapePerSqm: 2.0,
-  inkElecPerSqm: 4.0,
+  appTapePerSqm: 2.0,       // alias supported as applicationTapePerSqm
+  inkElecPerSqm: 4.0,       // alias supported as inkCostPerSqm
   profitMultiplier: 1.8,
 
   // Optional finishing uplifts
@@ -26,20 +27,13 @@ export const DEFAULT_SETTINGS: Settings = {
     None: 0.00,
   },
 
-  // ✅ New (Vinyl Cut Options) – set to 0 unless you load from your sheet
-  costPerCutVinylOnly: 0.25, // if you want to use this instead of cutPerSign
-  kissOnRollSetupFee: 0,
-  kissOnRollPerItem: 0,
-  kissOnSheetsSetupFee: 0,
-  kissOnSheetsPerItem: 0,
-  cutIndividuallySetupFee: 0,
-  cutIndividuallyPerItem: 0,
-  cutWeededSetupFee: 0,
-  cutWeededPerItem: 0,
-  appTapePerLm: 0,             // use this if charging tape by linear metre
-  whiteBackedVinylPerLm: 0,    // linear metre price of white backing
+  // ✅ NEW: Vinyl Cut Options defaults (0 = off, until your CSV/Excel provides values)
+  plotterPerimeterPerM: 0,
+  plotterCutPerPiece: { None: 0, KissCutOnRoll: 0, CutIntoSheets: 0, IndividuallyCut: 0 },
+  cuttingStyleUplifts: { Standard: 0, Intricate: 0 },
+  whiteBackingPerSqm: 0,
 
-  // Delivery (flat)
+  // Delivery (flat form)
   deliveryBase: 5,
   deliveryBands: [
     { maxSumCm: 100, surcharge: 0 },
@@ -48,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
     { maxSumCm: 400, surcharge: 8 },
   ],
 
+  // VAT (if used elsewhere)
   vatRatePct: 20,
 }
 
