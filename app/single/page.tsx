@@ -285,7 +285,8 @@ export default function SinglePage() {
     // (Use the one you already have in your split version.)
     return { text: '—', lmText: '—' } // placeholder if you trimmed it locally
   }, [/* same deps as your current preview */])
-
+  const splitCardTitle =
+      input.mode === 'SubstrateOnly' ? 'Substrate Splits' : 'Vinyl splits'
   return (
       <div className="space-y-6">
         <h1 className="h1">Single Sign</h1>
@@ -323,6 +324,7 @@ export default function SinglePage() {
         {/* Second row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <SubstrateSplitsCard
+              title={splitCardTitle}
               isSubstrateProduct={isSubstrateProduct}
               currentSubVariant={currentSubVariant}
               panelSplits={input.panelSplits ?? 0}
