@@ -1,20 +1,28 @@
 export type Mode =
-  | 'SolidColourCutVinyl'
-  | 'PrintAndCutVinyl'
-  | 'PrintedVinylOnly'
-  | 'PrintedVinylOnSubstrate'
-  | 'SubstrateOnly'
+    | 'SolidColourCutVinyl'
+    | 'PrintAndCutVinyl'
+    | 'PrintedVinylOnSubstrate'
+    | 'SubstrateOnly'
 
 export type Finishing = 'KissCutOnRoll' | 'CutIntoSheets' | 'IndividuallyCut' | 'None'
 export type Complexity = 'Basic' | 'Standard' | 'Complex'
 export type Orientation = 'Vertical' | 'Horizontal'
 
+export type PlotterCut =
+    | 'None'
+    | 'KissOnRoll'
+    | 'KissOnSheets'
+    | 'CutIndividually'
+    | 'CutAndWeeded'
+
+export type CuttingStyle = 'Standard' | 'Reverse'
+
 export type Settings = {
-  // Master machine limits (global caps)
+  // Machine/global limits
   masterMaxPrintWidthMm: number
   masterMaxCutWidthMm: number
 
-  // Global margins & overlaps
+  // Margins & overlaps
   vinylMarginMm: number
   substrateMarginMm: number
   tileOverlapMm: number
@@ -23,25 +31,38 @@ export type Settings = {
   // Costs (preferred names)
   setupFee: number
   cutPerSign: number
-  appTapePerSqm?: number            // preferred (alias of applicationTapePerSqm)
-  inkElecPerSqm?: number            // preferred (alias of inkCostPerSqm)
+  appTapePerSqm?: number
+  inkElecPerSqm?: number
   profitMultiplier?: number
 
-  // Legacy/synonym fields (kept optional for compatibility)
-  applicationTapePerSqm?: number    // alias for appTapePerSqm
-  inkCostPerSqm?: number            // alias for inkElecPerSqm
+  // Legacy/synonym fields (compat)
+  applicationTapePerSqm?: number
+  inkCostPerSqm?: number
 
   // Optional finishing uplifts
   finishingUplifts?: Partial<Record<Finishing, number>>
 
-  // ✅ NEW: per-sticker complexity surcharges
+  // ✅ NEW (Vinyl Cut Options) — all optional, default 0
+  costPerCutVinylOnly?: number // if provided, overrides cutPerSign
+  kissOnRollSetupFee?: number
+  kissOnRollPerItem?: number
+  kissOnSheetsSetupFee?: number
+  kissOnSheetsPerItem?: number
+  cutIndividuallySetupFee?: number
+  cutIndividuallyPerItem?: number
+  cutWeededSetupFee?: number
+  cutWeededPerItem?: number
+  appTapePerLm?: number
+  whiteBackedVinylPerLm?: number
+
+  // ✅ NEW per-sticker complexity surcharges
   complexityPerSticker?: Partial<Record<Complexity, number>>
 
   // Delivery (flat / legacy)
   deliveryBase?: number
   deliveryBands?: { maxSumCm: number; surcharge: number }[]
 
-  // ✅ NEW: nested delivery (what normalizeSettings returns)
+  // ✅ NEW nested delivery
   delivery?: {
     baseFee: number
     bands: Array<{
@@ -57,16 +78,13 @@ export type Settings = {
   vatRatePct?: number
 }
 
-
 export type VinylMedia = {
   id: string
   name: string
   rollWidthMm: number
-  rollPrintableWidthMm: number // usable/print width
+  rollPrintableWidthMm: number
   pricePerLm: number
-  // optional categorisation
   category?: 'Solid' | 'Printed' | string
-  // Optional per-media limits (compat with defaults.ts)
   maxPrintWidthMm?: number
   maxCutWidthMm?: number
 }
@@ -87,16 +105,25 @@ export type SingleSignInput = {
   qty: number
   vinylId?: string
   substrateId?: string
-  doubleSided?: boolean // for PrintedVinylOnSubstrate/SubstrateOnly
+  doubleSided?: boolean
   finishing?: Finishing
   complexity?: Complexity
+
+  // Existing
   applicationTape?: boolean
-  panelSplits?: number // 0..6
+  panelSplits?: number
   panelOrientation?: Orientation
   settings?: Settings
-  vinylAuto?: boolean;                    // default true (auto rotate/minimize)
-  vinylSplitOverride?: number;            // 0 or undefined = None/one-piece
-  vinylSplitOrientation?: Orientation;    // Vertical | Horizontal (only if override)
+
+  // Vinyl Split (tiling) options
+  vinylAuto?: boolean
+  vinylSplitOverride?: number
+  vinylSplitOrientation?: Orientation
+
+  // ✅ Vinyl Cut Options
+  plotterCut?: PlotterCut
+  backedWithWhite?: boolean
+  cuttingStyle?: CuttingStyle
 }
 
 export type VinylCostItem = {
@@ -108,23 +135,19 @@ export type VinylCostItem = {
 
 export type SubstrateCostItem = {
   material: string
-  sheet: string // e.g., "2440×1220"
-  neededSheets: number // fractional
-  chargedSheets: number // integer
+  sheet: string
+  neededSheets: number
+  chargedSheets: number
   pricePerSheet: number
   cost: number
 }
 
-// types.ts
 export type PriceBreakdown = {
   // Money
   materials: number
   ink: number
-
-  // add these two to match your return:
   setup: number
   finishingUplift: number
-
   cutting: number
   preDelivery: number
   delivery: number
@@ -147,4 +170,3 @@ export type PriceBreakdown = {
     substrate: SubstrateCostItem[]
   }
 }
-
