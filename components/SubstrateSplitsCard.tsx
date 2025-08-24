@@ -3,7 +3,6 @@ import Card from '@/components/Card'
 import type { Orientation, PriceBreakdown, Substrate } from '@/lib/types'
 
 export default function SubstrateSplitsCard({
-                                                title,
                                                 isSubstrateProduct,
                                                 currentSubVariant,
                                                 panelSplits,
@@ -14,7 +13,6 @@ export default function SubstrateSplitsCard({
                                                 splitPreviewText,
                                                 result,
                                             }: {
-    title: string
     isSubstrateProduct: boolean
     currentSubVariant?: Substrate
     panelSplits: number
@@ -29,16 +27,12 @@ export default function SubstrateSplitsCard({
 
     return (
         <Card>
-            <h2 className="h2 mb-2">{title}</h2>
+            <h2 className="h2 mb-2">Substrate Splits</h2>
 
             <label className="label">
-                {title} Override
-                <select
-                    className="select"
-                    value={panelSplits}
-                    disabled={!isSubstrateProduct || !currentSubVariant}
-                    onChange={e => onSplitsChange(+e.target.value)}
-                >
+                Substrate Split Override
+                <select className="select" value={panelSplits} disabled={!isSubstrateProduct || !currentSubVariant}
+                        onChange={e => onSplitsChange(+e.target.value)}>
                     <option value={0} disabled={!allowed.has(0)}>None (1 piece)</option>
                     {[2,3,4,5,6].map(n => (
                         <option key={n} value={n} disabled={!allowed.has(n)}>{n}</option>
@@ -47,13 +41,10 @@ export default function SubstrateSplitsCard({
             </label>
 
             <label className={`label ${panelSplits === 0 ? 'opacity-50' : ''}`}>
-                {title} Orientation
-                <select
-                    className="select"
-                    value={panelOrientation}
-                    onChange={e => onOrientationChange(e.target.value as Orientation)}
-                    disabled={!isSubstrateProduct || !currentSubVariant || panelSplits === 0}
-                >
+                Substrate Split Orientation
+                <select className="select" value={panelOrientation}
+                        onChange={e => onOrientationChange(e.target.value as Orientation)}
+                        disabled={!isSubstrateProduct || !currentSubVariant || panelSplits === 0}>
                     <option>Vertical</option>
                     <option>Horizontal</option>
                 </select>

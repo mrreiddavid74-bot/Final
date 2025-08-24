@@ -13,8 +13,6 @@ import type {
   Substrate,
   SingleSignInput,
   PriceBreakdown,
-  PlotterCut,
-  CuttingStyle,
 } from '@/lib/types'
 
 // UI pieces
@@ -27,10 +25,10 @@ import VinylCutOptionsCard from '@/components/VinylCutOptionsCard'
 import CostsCard from '@/components/CostsCard'
 
 const MODES: { id: Mode; label: string }[] = [
-  { id: 'SolidColourCutVinyl', label: 'Solid Colour Cut Vinyl Only' },
-  { id: 'PrintAndCutVinyl',    label: 'Print & Cut Vinyl' },
+  { id: 'SolidColourCutVinyl',     label: 'Solid Colour Cut Vinyl Only' },
+  { id: 'PrintAndCutVinyl',        label: 'Print & Cut Vinyl' },
   { id: 'PrintedVinylOnSubstrate', label: 'Printed Vinyl mounted to a substrate' },
-  { id: 'SubstrateOnly',       label: 'Substrate Only' },
+  { id: 'SubstrateOnly',           label: 'Substrate Only' },
 ]
 
 // helpers
@@ -59,7 +57,7 @@ export default function SinglePage() {
     finishing: 'None' as Finishing,
     complexity: 'Standard' as Complexity,
 
-    // Vinyl tiling
+    // Vinyl tiling (panels used for substrate splits naming, reused as "Vinyl splits" visual)
     panelSplits: 0,
     panelOrientation: 'Vertical',
 
@@ -177,13 +175,9 @@ export default function SinglePage() {
   }, [subGroupKey, subGroups])
 
   // Convenience flags
-  const isVinylProdOnly =
-      input.mode === 'SolidColourCutVinyl' ||
-      input.mode === 'PrintAndCutVinyl'
-  const isSubstrateProduct =
-      input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly'
-  const showVinylOptions = input.mode === 'PrintedVinylOnSubstrate'
-  const showCutOptions = input.mode === 'PrintAndCutVinyl' || input.mode === 'SolidColourCutVinyl'
+  const isVinylOnlyMode   = input.mode === 'SolidColourCutVinyl' || input.mode === 'PrintAndCutVinyl'
+  const isSubstrateMode   = input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly'
+  const hasVinylSelected  = !!input.vinylId && input.mode !== 'SubstrateOnly'
 
   // Current substrate variant
   const currentSubVariant = useMemo(
@@ -223,7 +217,7 @@ export default function SinglePage() {
   }, [input.widthMm, input.heightMm, usableSheet.w, usableSheet.h])
 
   useEffect(() => {
-    if (!isSubstrateProduct || !currentSubVariant) return
+    if (!isSubstrateMode || !currentSubVariant) return
     const curOri: Orientation = input.panelOrientation ?? 'Vertical'
     const allowedCur = allowedSplitsForOrientation[curOri]
     const cur = input.panelSplits ?? 0
@@ -236,24 +230,23 @@ export default function SinglePage() {
     if (allowedOther.includes(0)) { setInput(prev => ({ ...prev, panelOrientation: otherOri, panelSplits: 0 })); return }
     const smallestOther = allowedOther.find(n => n >= 2)
     if (smallestOther != null) setInput(prev => ({ ...prev, panelOrientation: otherOri, panelSplits: smallestOther }))
-  }, [allowedSplitsForOrientation, isSubstrateProduct, currentSubVariant, input.panelOrientation, input.panelSplits])
+  }, [allowedSplitsForOrientation, isSubstrateMode, currentSubVariant, input.panelOrientation, input.panelSplits])
 
   // Ready to price?
   const needsVinyl = input.mode !== 'SubstrateOnly'
-  const needsSub = isSubstrateProduct
+  const needsSub   = isSubstrateMode
   const ready =
       !loading &&
       (!needsVinyl || (!!input.vinylId && media.some(m => m.id === input.vinylId))) &&
-      (!needsSub || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
+      (!needsSub   || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
 
-  // Pricing (guarded, kept in sync with the Vinyl Split Options UI)
+  // Pricing (kept in sync with the Vinyl Split Options UI)
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
       return priceSingle(
           {
             ...input,
-            // keep costs in sync with the "Vinyl Split Options" UI
             vinylAuto: vinylAutoMode === 'auto',
             vinylSplitOverride: vinylAutoMode === 'custom' ? vinylSplitOverride : 0,
             vinylSplitOrientation: vinylOrientation,
@@ -278,15 +271,103 @@ export default function SinglePage() {
     return { panelsText }
   }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
 
-  // ---------- VINYL SPLIT OPTIONS PREVIEW (display only) ----------
+  // ---------- VINYL SPLIT OPTIONS PREVIEW (matches pricing formulas) ----------
   const vinylPreview = useMemo(() => {
-    // keep your existing working preview block here;
-    // no changes needed for the new cut options.
-    // (Use the one you already have in your split version.)
-    return { text: '—', lmText: '—' } // placeholder if you trimmed it locally
-  }, [/* same deps as your current preview */])
-  const splitCardTitle =
-      input.mode === 'SubstrateOnly' ? 'Substrate Splits' : 'Vinyl splits'
+    const m = media.find(x => x.id === input.vinylId)
+    if (!m) return { text: '—', lmText: '—' }
+
+    const masterCap = DEFAULT_SETTINGS.masterMaxPrintWidthMm || Infinity
+    const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
+    const gutter = DEFAULT_SETTINGS.vinylMarginMm ?? 0
+    const overlap = DEFAULT_SETTINGS.tileOverlapMm ?? 0
+    const W = input.widthMm || 0
+    const H = input.heightMm || 0
+    const Q = Math.max(1, input.qty || 1)
+
+    const perRow = (acrossDim: number) => Math.max(1, Math.floor(effW / (acrossDim + gutter)))
+    const mmText = (mm: number) => `${Math.round(mm)}mm (${(mm / 1000).toFixed(2)}m)`
+
+    // helpers mirroring pricing.ts
+    const packAcross = (acrossDim: number, lengthDim: number, pieces: number) => {
+      const pr = perRow(acrossDim)
+      const rows = Math.ceil(pieces / pr)
+      const totalMm = rows * lengthDim + Math.max(0, rows - 1) * gutter
+      return { across: pr, rows, totalMm }
+    }
+    const tileColumnsTotal = (acrossDim: number, lengthDim: number, pieces: number) => {
+      const denom = Math.max(1, effW - overlap)
+      const cols = Math.ceil((acrossDim + overlap) / denom)
+      const totalMm = cols * (lengthDim + gutter) * pieces
+      return { cols, totalMm }
+    }
+
+    // AUTO (rotate to avoid tiling if possible)
+    if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
+      const fitsAsIs = W <= effW
+      const fitsRot  = H <= effW
+      if (fitsAsIs || fitsRot) {
+        const cand: Array<{ across: number; rows: number; totalMm: number; label: string }> = []
+        if (fitsAsIs) cand.push({ ...packAcross(W, H, Q), label: `${Math.round(W)} × ${Math.round(H)}mm` })
+        if (fitsRot)  cand.push({ ...packAcross(H, W, Q), label: `${Math.round(W)} × ${Math.round(H)}mm` })
+        const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
+        return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.totalMm) }
+      }
+      // need tiling
+      const t = tileColumnsTotal(W, H, Q)
+      const tileW = W / t.cols
+      const across = perRow(tileW)
+      return {
+        text: `${across} per row — ${t.cols} × ${Math.round(W / t.cols)} × ${Math.round(H)}mm`,
+        lmText: mmText(t.totalMm)
+      }
+    }
+
+    // CUSTOM (override)
+    const n = Math.max(1, vinylSplitOverride)
+    const pieces = Q * n
+    const baseW = vinylOrientation === 'Vertical' ? W / n : W
+    const baseH = vinylOrientation === 'Vertical' ? H : H / n
+
+    const candidates: Array<{ across?: number; rows?: number; totalMm: number; cols?: number; rotated?: boolean }> = []
+
+    if (baseW <= effW) {
+      const p = packAcross(baseW, baseH, pieces)
+      candidates.push({ ...p })
+    }
+    if (baseH <= effW) {
+      const p = packAcross(baseH, baseW, pieces)
+      candidates.push({ ...p, rotated: true })
+    }
+    if (!candidates.length) {
+      const ta = tileColumnsTotal(baseW, baseH, pieces)
+      const tb = tileColumnsTotal(baseH, baseW, pieces)
+      const pick = ta.totalMm <= tb.totalMm ? { ...ta, rotated: false } : { ...tb, rotated: true }
+      const acrossDim = pick.rotated ? baseH : baseW
+      const tileAcross = acrossDim / (pick.cols || 1)
+      const across = perRow(tileAcross)
+      const disp = n > 1
+          ? `${across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
+          : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+      return { text: disp, lmText: mmText(pick.totalMm) }
+    } else {
+      const pick = candidates.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
+      const disp = n > 1
+          ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
+          : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
+      return { text: disp, lmText: mmText(pick.totalMm) }
+    }
+  }, [
+    media,
+    input.vinylId,
+    input.widthMm,
+    input.heightMm,
+    input.qty,
+    vinylAutoMode,
+    vinylSplitOverride,
+    vinylOrientation,
+  ])
+
+  // ---------- LAYOUT ----------
   return (
       <div className="space-y-6">
         <h1 className="h1">Single Sign</h1>
@@ -310,35 +391,23 @@ export default function SinglePage() {
               vinylId={input.vinylId}
               onVinylChange={(id) => setInput({ ...input, vinylId: id })}
               isVinylDisabled={input.mode === 'SubstrateOnly'}
-              isSubstrateProduct={isSubstrateProduct}
+              isSubstrateProduct={isSubstrateMode}
               subGroups={subGroups}
               subGroupKey={subGroupKey}
               setSubGroupKey={setSubGroupKey}
               substrateId={input.substrateId}
               onSubstrateChange={(id) => setInput(prev => ({ ...prev, substrateId: id }))}
               fmtSize={fmtSize}
-              isVinylProdOnly={isVinylProdOnly}
+              isVinylProdOnly={isVinylOnlyMode}
           />
         </div>
 
         {/* Second row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <SubstrateSplitsCard
-              title={splitCardTitle}
-              isSubstrateProduct={isSubstrateProduct}
-              currentSubVariant={currentSubVariant}
-              panelSplits={input.panelSplits ?? 0}
-              panelOrientation={input.panelOrientation ?? 'Vertical'}
-              onSplitsChange={(n) => setInput({ ...input, panelSplits: n })}
-              onOrientationChange={(o) => setInput({ ...input, panelOrientation: o })}
-              allowedSplitsForOrientation={allowedSplitsForOrientation}
-              splitPreviewText={splitPreview.panelsText}
-              result={result}
-          />
-
-          {isSubstrateProduct ? (
+        {isVinylOnlyMode ? (
+            // For "Print & Cut Vinyl" and "Solid Colour Cut Vinyl Only": show Vinyl Split Options in the first slot.
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <VinylSplitOptionsCard
-                  hasVinyl={!!input.vinylId}
+                  hasVinyl={hasVinylSelected}
                   vinylAutoMode={vinylAutoMode}
                   setVinylAutoMode={setVinylAutoMode}
                   vinylSplitOverride={vinylSplitOverride}
@@ -348,22 +417,49 @@ export default function SinglePage() {
                   previewText={vinylPreview.text}
                   previewLmText={vinylPreview.lmText}
               />
-          ) : (
-              ""
-          )}
 
-          {/* NEW: Vinyl Cut Options (only for Print & Cut or Solid Colour) */}
-          <VinylCutOptionsCard
-              show={showCutOptions}
-              plotterCut={input.plotterCut ?? 'None'}
-              backedWithWhite={!!input.backedWithWhite}
-              cuttingStyle={input.cuttingStyle ?? 'Standard'}
-              applicationTape={!!input.applicationTape}
-              onChange={(patch) => setInput({ ...input, ...patch })}
-          />
+              {/* Keep Vinyl Cut Options next, then Costs */}
+              <VinylCutOptionsCard
+                  show={true}
+                  plotterCut={input.plotterCut ?? 'None'}
+                  backedWithWhite={!!input.backedWithWhite}
+                  cuttingStyle={input.cuttingStyle ?? 'Standard'}
+                  applicationTape={!!input.applicationTape}
+                  onChange={(patch) => setInput({ ...input, ...patch })}
+              />
 
-          <CostsCard loading={loading} ready={ready} result={result} />
-        </div>
+              <CostsCard loading={loading} ready={ready} result={result} />
+            </div>
+        ) : (
+            // Substrate products: keep Substrate Splits first, Vinyl Split Options second, Costs third.
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <SubstrateSplitsCard
+                  isSubstrateProduct={isSubstrateMode}
+                  currentSubVariant={currentSubVariant}
+                  panelSplits={input.panelSplits ?? 0}
+                  panelOrientation={input.panelOrientation ?? 'Vertical'}
+                  onSplitsChange={(n) => setInput({ ...input, panelSplits: n })}
+                  onOrientationChange={(o) => setInput({ ...input, panelOrientation: o })}
+                  allowedSplitsForOrientation={allowedSplitsForOrientation}
+                  splitPreviewText={splitPreview.panelsText}
+                  result={result}
+              />
+
+              <VinylSplitOptionsCard
+                  hasVinyl={hasVinylSelected}
+                  vinylAutoMode={vinylAutoMode}
+                  setVinylAutoMode={setVinylAutoMode}
+                  vinylSplitOverride={vinylSplitOverride}
+                  setVinylSplitOverride={setVinylSplitOverride}
+                  vinylOrientation={vinylOrientation}
+                  setVinylOrientation={setVinylOrientation}
+                  previewText={vinylPreview.text}
+                  previewLmText={vinylPreview.lmText}
+              />
+
+              <CostsCard loading={loading} ready={ready} result={result} />
+            </div>
+        )}
       </div>
   )
 }
