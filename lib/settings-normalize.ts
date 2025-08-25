@@ -1,85 +1,81 @@
 // lib/settings-normalize.ts
 import type { Settings } from './types'
 
-const num = (v: any, d = 0) => (typeof v === 'number' ? v : Number(v)) || d
+const num = (v: unknown, d = 0): number => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : d
+  const n = parseFloat(String(v ?? ''))
+  return Number.isFinite(n) ? n : d
+}
+
+const has = (o: any, k: string) => o && Object.prototype.hasOwnProperty.call(o, k)
 
 /**
- * Accepts either the raw JSON you uploaded (flat CSV-style keys)
- * or a partially-structured Settings object, and returns a
- * normalized Settings with the fields pricing.ts expects.
+ * Accepts your uploaded costs JSON (flattened keys like
+ * "Sell Multiplier", "Ink Cost sqm", "Kiss Cut On Roll", etc.)
+ * and maps them onto our Settings shape. Unknown keys are ignored.
+ *
+ * We keep everything flexible and use `as any` for CSV-only fields so
+ * you don't need to change your TS types to try this out.
  */
-export function normalizeSettings(raw: any): Settings {
-  const s: any = { ...(raw || {}) }
+export function normalizeSettings(raw: Partial<Settings> & Record<string, any>): Settings & Record<string, any> {
+  // Start with whatever the app passed as "settings"
+  const out: any = { ...(raw || {}) }
 
-  // ---------- Margins / master caps (keep existing if already present) ----------
-  s.vinylMarginMm = num(raw['Vinyl Sign Margin mm'], s.vinylMarginMm)
-  s.substrateMarginMm = num(raw['Substrate Sign Margin mm'], s.substrateMarginMm)
+  // ---- Core rates / multipliers ----
+  if (has(raw, 'Sell Multiplier')) out.profitMultiplier = num(raw['Sell Multiplier'])
+  if (has(raw, 'Ink Cost sqm'))    out.inkElecPerSqm    = num(raw['Ink Cost sqm'])
 
-  // Optional master caps (0/undefined means "no cap"; handled in pricing.ts)
-  if (s.masterMaxPrintWidthMm == null) s.masterMaxPrintWidthMm = num(raw.masterMaxPrintWidthMm)
-  if (s.masterMaxCutWidthMm == null) s.masterMaxCutWidthMm = num(raw.masterMaxCutWidthMm)
+  // (Legacy aliases still respected)
+  if (has(raw, 'inkCostPerSqm')) out.inkElecPerSqm = num(raw['inkCostPerSqm'])
 
-  // ---------- Ink / multipliers ----------
-  s.inkCostPerSqm = num(raw['Ink Cost sqm'], s.inkCostPerSqm)
-  s.profitMultiplier = num(raw['Sell Multiplier'], s.profitMultiplier || 1)
+  // ---- Cut-per-sign (vinyl only) ----
+  if (has(raw, 'Cost Per Cut Vinyl Only')) out.cutPerSign = num(raw['Cost Per Cut Vinyl Only'])
 
-  // ---------- Delivery base + postage bands ----------
-  const baseFee = num(raw['Delivery Base'], s.delivery?.baseFee)
-  const bands: any[] = []
+  // ---- Application tape & white backing (PER LINEAR METRE) ----
+  if (has(raw, 'Application Tape Cost per lm')) out.appTapePerLm = num(raw['Application Tape Cost per lm'])
+  if (has(raw, 'White Backed Vinyl lm'))       out.whiteBackingPerLm = num(raw['White Backed Vinyl lm'])
 
-  const p100 = raw['Postage ≤ 100 cm']
-  const p150 = raw['Postage ≤ 150 cm']
-  const p200 = raw['Postage ≤ 200 cm']
-  const p200p = raw['Postage > 200 cm']
+  // Leave sqm versions in place if user provides those in the future
+  if (has(raw, 'Application Tape Cost per sqm')) out.appTapePerSqm = num(raw['Application Tape Cost per sqm'])
+  if (has(raw, 'White Backed Vinyl sqm'))       out.whiteBackingPerSqm = num(raw['White Backed Vinyl sqm'])
 
-  // Use "surcharge" style (base + surcharge) — this matches pricing.ts logic
-  if ([p100, p150, p200, p200p].some(v => v != null && v !== '')) {
-    bands.push(
-        { name: '≤ 100 cm', maxGirthCm: 100, surcharge: num(p100) },
-        { name: '≤ 150 cm', maxGirthCm: 150, surcharge: num(p150) },
-        { name: '≤ 200 cm', maxGirthCm: 200, surcharge: num(p200) },
-        { name: '> 200 cm', maxGirthCm: Infinity, surcharge: num(p200p) },
-    )
-  }
+  // ---- Margins on signs ----
+  if (has(raw, 'Vinyl Sign Margin mm'))     out.vinylMarginMm     = num(raw['Vinyl Sign Margin mm'])
+  if (has(raw, 'Substrate Sign Margin mm')) out.substrateMarginMm = num(raw['Substrate Sign Margin mm'])
 
-  s.delivery = s.delivery || {}
-  s.delivery.baseFee = baseFee
-  if (bands.length) s.delivery.bands = bands
+  // ---- Delivery bands (using your flat ranges) ----
+  // We support either new structured delivery or the legacy "base + bands".
+  if (!out.delivery) out.delivery = {}
+  if (has(raw, 'Delivery Base')) out.delivery.baseFee = num(raw['Delivery Base'])
 
-  // ---------- (optional) waste/overlap defaults ----------
-  if (s.tileOverlapMm == null) s.tileOverlapMm = num(raw.tileOverlapMm, 0)
-  if (s.vinylWasteLmPerJob == null) s.vinylWasteLmPerJob = num(raw.vinylWasteLmPerJob, 0)
+  const bands: Array<{ maxGirthCm: number; price: number; name: string }> = []
+  if (has(raw, 'Postage ≤ 100 cm')) bands.push({ maxGirthCm: 100, price: num(raw['Postage ≤ 100 cm']), name: '≤ 100 cm' })
+  if (has(raw, 'Postage ≤ 150 cm')) bands.push({ maxGirthCm: 150, price: num(raw['Postage ≤ 150 cm']), name: '≤ 150 cm' })
+  if (has(raw, 'Postage ≤ 200 cm')) bands.push({ maxGirthCm: 200, price: num(raw['Postage ≤ 200 cm']), name: '≤ 200 cm' })
+  if (has(raw, 'Postage > 200 cm')) bands.push({ maxGirthCm: Infinity, price: num(raw['Postage > 200 cm']), name: '> 200 cm' })
+  if (bands.length) out.delivery.bands = bands
 
-  // ---------- Application/white-backing (LM-based) ----------
-  s.applicationTapePerLm = num(raw['Application Tape Cost per lm'], s.applicationTapePerLm)
-  s.whiteBackingPerLm = num(raw['White Backed Vinyl lm'], s.whiteBackingPerLm)
-
-  // Back-compat if you still use sqm-based charges anywhere
-  s.applicationTapePerSqm = num(raw.applicationTapePerSqm, s.applicationTapePerSqm)
-  s.whiteBackingPerSqm = num(raw.whiteBackingPerSqm, s.whiteBackingPerSqm)
-
-  // ---------- Plotter cut fees (MATCH select values in the UI) ----------
-  s.plotterCutSetup = {
-    None: 0,
-    KissOnRoll: num(raw['Kiss Cut On Roll Setup Fee']),
-    KissOnSheets: num(raw['Kiss Cut On Sheets Setup Fee']),
+  // ---- Plotter cut setup + per-piece maps (from your CSV labels) ----
+  // UI values: None | KissOnRoll | KissOnSheets | CutIndividually | CutAndWeeded
+  out.plotterCutSetup = {
+    KissOnRoll:      num(raw['Kiss Cut On Roll Setup Fee']),
+    KissOnSheets:    num(raw['Kiss Cut On Sheets Setup Fee']),
     CutIndividually: num(raw['Cut Individually Setup Fee']),
-    CutAndWeeded: num(raw['Cut & Weeded Setup Fee']),
+    CutAndWeeded:    num(raw['Cut & Weeded Setup Fee']),
   }
-
-  // Per-piece fees (qty-based)
-  s.plotterCutPerPiece = {
-    // When "None", treat as the "Cost Per Cut Vinyl Only"
-    None: num(raw['Cost Per Cut Vinyl Only']),
-    KissOnRoll: num(raw['Kiss Cut On Roll']),
-    KissOnSheets: num(raw['Kiss Cut On Sheets']),
+  out.plotterCutPerPiece = {
+    None:            0,
+    KissOnRoll:      num(raw['Kiss Cut On Roll']),
+    KissOnSheets:    num(raw['Kiss Cut On Sheets']),
     CutIndividually: num(raw['Cut Individually']),
-    CutAndWeeded: num(raw['Cut & Weeded']),
+    CutAndWeeded:    num(raw['Cut & Weeded']),
   }
 
-  // ---------- Other optional knobs (kept for compatibility) ----------
-  s.setupFee = num(raw.setupFee, s.setupFee || 0)
-  s.cutPerSign = num(raw.cutPerSign, s.cutPerSign || 0)
+  // ---- Optional: cutting style uplifts (keep defaults 0 if not provided) ----
+  // Standard / Intricate
+  if (!out.cuttingStyleUplifts) out.cuttingStyleUplifts = {}
+  if (has(raw, 'Cutting Style Standard %'))  out.cuttingStyleUplifts.Standard  = num(raw['Cutting Style Standard %'])  / 100
+  if (has(raw, 'Cutting Style Intricate %')) out.cuttingStyleUplifts.Intricate = num(raw['Cutting Style Intricate %']) / 100
 
-  return s as Settings
+  return out as Settings & Record<string, any>
 }
