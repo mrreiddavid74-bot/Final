@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Card from '@/components/Card'
-import type { Settings } from '@/lib/types'
-import { DEFAULT_SETTINGS } from '@/lib/defaults'
 
-// --- Row types just for the list previews on this page ---
 type VinylRow = {
     id?: string
     name?: string
@@ -26,13 +23,14 @@ type SubstrateRow = {
     thicknessMm?: number | string
 }
 
+type CostMap = Record<string, number | string>
+
 async function safeJson(res: Response) {
     const ctype = res.headers.get('content-type') || ''
     const text = await res.text()
     if (!ctype.includes('application/json')) {
         throw new Error(
-            `Unexpected non-JSON response (${res.status} ${res.statusText}).\n` +
-            `${text.slice(0, 400)}`
+            `Unexpected non-JSON response (${res.status} ${res.statusText}).\n` + text.slice(0, 400),
         )
     }
     try {
@@ -45,13 +43,13 @@ async function safeJson(res: Response) {
 export default function SettingsPage() {
     const [vinyl, setVinyl] = useState<VinylRow[]>([])
     const [substrates, setSubstrates] = useState<SubstrateRow[]>([])
-    const [costs, setCosts] = useState<Settings>(DEFAULT_SETTINGS)
+    const [costs, setCosts] = useState<CostMap>({})
     const [info, setInfo] = useState('')
     const [error, setError] = useState('')
 
     const reload = useCallback(async () => {
         setError('')
-        setInfo('Loading current materials & costs…')
+        setInfo('Loading current data…')
         try {
             const [vinRes, subRes, costRes] = await Promise.all([
                 fetch('/api/settings/vinyl', { cache: 'no-store' }),
@@ -65,13 +63,11 @@ export default function SettingsPage() {
             ])
             setVinyl(Array.isArray(vinJson) ? vinJson : [])
             setSubstrates(Array.isArray(subJson) ? subJson : [])
-            // /api/settings/costs returns normalized settings (and maybe metadata)
-            setCosts((costJson && typeof costJson === 'object' && costJson.settings) ? costJson.settings : costJson)
-
+            setCosts(costJson && typeof costJson === 'object' ? (costJson as CostMap) : {})
             setInfo(
                 `Loaded: ${Array.isArray(vinJson) ? vinJson.length : 0} vinyl, ` +
                 `${Array.isArray(subJson) ? subJson.length : 0} substrates, ` +
-                `costs ok`
+                `${Object.keys(costJson || {}).length} costs`,
             )
         } catch (e: any) {
             setError(String(e?.message || e))
@@ -79,14 +75,17 @@ export default function SettingsPage() {
         }
     }, [])
 
-    useEffect(() => { reload() }, [reload])
+    useEffect(() => {
+        reload()
+    }, [reload])
 
     async function upload(endpoint: 'vinyl' | 'substrates' | 'costs', file: File) {
         setError('')
         setInfo(`Uploading ${file.name} to ${endpoint}…`)
 
         const text = await file.text()
-        const looksJson = file.name.toLowerCase().endsWith('.json') || /^[\s\r\n]*[\[{]/.test(text)
+        const looksJson =
+            file.name.toLowerCase().endsWith('.json') || /^[\s\r\n]*[\[{]/.test(text) // JSON array/object hint
 
         try {
             const res = await fetch(`/api/settings/${endpoint}`, {
@@ -96,6 +95,7 @@ export default function SettingsPage() {
             })
             const payload = await safeJson(res)
             if (!res.ok) throw new Error(payload?.error || `Upload failed (${res.status})`)
+
             setInfo(`${endpoint}: uploaded ${payload?.count ?? 0} rows`)
             await reload()
         } catch (e: any) {
@@ -104,20 +104,13 @@ export default function SettingsPage() {
         }
     }
 
-    // Helpers for snapshot display
-    const finishingEntries = Object.entries(costs.finishingUplifts ?? {}) as Array<[string, number]>
-    const complexityEntries = Object.entries(costs.complexityPerSticker ?? {}) as Array<[string, number]>
-    const deliveryBands = costs.delivery?.bands ?? []
-
     return (
         <div className="space-y-6">
             <h1 className="h1">Settings</h1>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Uploaders */}
                 <Card>
-                    <h2 className="h2 mb-2">Upload Materials & Costs</h2>
-
+                    <h2 className="h2 mb-2">Upload Data</h2>
                     <div className="space-y-4">
                         <div>
                             <div className="font-semibold mb-1">Vinyl (CSV or JSON array)</div>
@@ -146,7 +139,7 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                            <div className="font-semibold mb-1">Costs & Rules (CSV or JSON object)</div>
+                            <div className="font-semibold mb-1">Costs & Rules (CSV or JSON)</div>
                             <input
                                 type="file"
                                 accept=".csv,.json"
@@ -156,19 +149,20 @@ export default function SettingsPage() {
                                     e.currentTarget.value = ''
                                 }}
                             />
-                            <div className="text-sm opacity-70 mt-1">
-                                CSV: two columns <code>key,value</code>. JSON: a single Settings object.
+                            <div className="text-xs opacity-70 mt-1">
+                                CSV format: two columns — <code>Key,Value</code> (header optional).
                             </div>
                         </div>
 
-                        <button className="btn" onClick={reload}>Reload current data</button>
+                        <button className="btn" onClick={reload}>
+                            Reload current data
+                        </button>
 
                         {info ? <div className="text-green-700">{info}</div> : null}
                         {error ? <div className="text-red-600 whitespace-pre-wrap">{error}</div> : null}
                     </div>
                 </Card>
 
-                {/* Materials snapshot */}
                 <Card>
                     <h2 className="h2 mb-2">Current Materials Snapshot</h2>
                     <div className="space-y-4">
@@ -181,7 +175,9 @@ export default function SettingsPage() {
                                     </li>
                                 ))}
                             </ul>
-                            {vinyl.length > 50 && <div className="opacity-70 mt-1">…and {vinyl.length - 50} more</div>}
+                            {vinyl.length > 50 && (
+                                <div className="opacity-70 mt-1">…and {vinyl.length - 50} more</div>
+                            )}
                         </div>
 
                         <div>
@@ -193,82 +189,39 @@ export default function SettingsPage() {
                                     </li>
                                 ))}
                             </ul>
-                            {substrates.length > 50 && <div className="opacity-70 mt-1">…and {substrates.length - 50} more</div>}
+                            {substrates.length > 50 && (
+                                <div className="opacity-70 mt-1">…and {substrates.length - 50} more</div>
+                            )}
                         </div>
                     </div>
                 </Card>
             </div>
 
-            {/* Costs snapshot */}
+            {/* RAW CSV DISPLAY */}
             <Card>
                 <h2 className="h2 mb-2">Current Costs &amp; Rules Snapshot</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <div className="font-semibold mb-1">General</div>
-                        <ul className="list-disc ml-5">
-                            <li>Setup Fee: £{(costs.setupFee ?? 0).toFixed(2)}</li>
-                            <li>Cut Per Sign: £{(costs.cutPerSign ?? 0).toFixed(2)}</li>
-                            <li>App Tape / m²: £{(costs.appTapePerSqm ?? costs.applicationTapePerSqm ?? 0).toFixed(2)}</li>
-                            <li>Ink+Elec / m²: £{(costs.inkElecPerSqm ?? costs.inkCostPerSqm ?? 0).toFixed(2)}</li>
-                            <li>Profit ×: {(costs.profitMultiplier ?? 1).toFixed(2)}</li>
-                        </ul>
-                    </div>
 
-                    <div>
-                        <div className="font-semibold mb-1">Machine &amp; Margins</div>
-                        <ul className="list-disc ml-5">
-                            <li>Master Print Max: {costs.masterMaxPrintWidthMm ?? 0}mm</li>
-                            <li>Master Cut Max: {costs.masterMaxCutWidthMm ?? 0}mm</li>
-                            <li>Vinyl Margin: {costs.vinylMarginMm ?? 0}mm</li>
-                            <li>Substrate Margin: {costs.substrateMarginMm ?? 0}mm</li>
-                            <li>Tile Overlap: {costs.tileOverlapMm ?? 0}mm</li>
-                            <li>Vinyl Waste / Job: {(costs.vinylWasteLmPerJob ?? 0).toFixed(2)} lm</li>
-                        </ul>
-                    </div>
 
-                    <div>
-                        <div className="font-semibold mb-1">Uplifts &amp; Bands</div>
-                        <div className="mb-2">
-                            <div className="font-semibold">Finishing Uplifts</div>
-                            <ul className="list-disc ml-5">
-                                {finishingEntries.map(([k, val]) => (
-                                    <li key={k}>{k}: {(val * 100).toFixed(1)}%</li>
-                                ))}
-                            </ul>
-                        </div>
-                        {!!complexityEntries.length && (
-                            <div className="mb-2">
-                                <div className="font-semibold">Complexity per Sticker</div>
-                                <ul className="list-disc ml-5">
-                                    {complexityEntries.map(([k, val]) => (
-                                        <li key={k}>{k}: £{val.toFixed(2)}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                        <div className="mb-2">
-                            <div className="font-semibold">Delivery</div>
-                            {costs.delivery ? (
-                                <ul className="list-disc ml-5">
-                                    <li>Base Fee: £{(costs.delivery.baseFee ?? 0).toFixed(2)}</li>
-                                    {deliveryBands.map((b, i) => (
-                                        <li key={i}>
-                                            {b.name ?? (b.maxGirthCm ? `${b.maxGirthCm}cm` : `${b.maxSumCm ?? ''}cm`)} — £
-                                            {(b.price ?? 0).toFixed(2)}
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <ul className="list-disc ml-5">
-                                    <li>Base Fee: £{(costs.deliveryBase ?? 0).toFixed(2)}</li>
-                                    {(costs.deliveryBands ?? []).map((b, i) => (
-                                        <li key={i}>{b.maxSumCm}cm — +£{(b.surcharge ?? 0).toFixed(2)}</li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    </div>
+                <div className="font-semibold mb-2">
+                    {Object.keys(costs).length} cost key{Object.keys(costs).length === 1 ? '' : 's'} loaded
                 </div>
+
+                {Object.keys(costs).length === 0 ? (
+                    <div className="opacity-70">No costs uploaded yet.</div>
+                ) : (
+                    <ul className="list-disc ml-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6">
+                        {Object.entries(costs)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([k, v]) => (
+                                <li key={k} className="pr-4">
+                                    <span className="font-medium">{k}</span>:&nbsp;
+                                    <span className="tabular-nums">
+                    {typeof v === 'number' ? v : String(v)}
+                  </span>
+                                </li>
+                            ))}
+                    </ul>
+                )}
             </Card>
         </div>
     )

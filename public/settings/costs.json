@@ -1,0 +1,23 @@
+{
+  "Cost Per Cut Vinyl Only": 0.25,
+  "Cost Per Cut Substrate": 1,
+  "Ink Cost sqm": 1.75,
+  "Delivery Base": 9.5,
+  "Postage ≤ 100 cm": 5,
+  "Postage ≤ 150 cm": 10,
+  "Postage ≤ 200 cm": 12.5,
+  "Postage > 200 cm": 15,
+  "Kiss Cut On Roll Setup Fee": 20,
+  "Kiss Cut On Sheets Setup Fee": 20,
+  "Cut Individually Setup Fee": 20,
+  "Cut & Weeded Setup Fee": 20,
+  "Kiss Cut On Roll": 0.1,
+  "Kiss Cut On Sheets": 0.25,
+  "Cut Individually": 0.5,
+  "Cut & Weeded": 2.5,
+  "Sell Multiplier": 2.7,
+  "Substrate Sign Margin mm": 0,
+  "Vinyl Sign Margin mm": 5,
+  "Application Tape Cost per lm": 1,
+  "White Backed Vinyl lm": 15
+}
