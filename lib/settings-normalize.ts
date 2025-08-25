@@ -1,170 +1,85 @@
 // lib/settings-normalize.ts
-import { Settings, Finishing, Complexity } from './types'
+import type { Settings } from './types'
+
+const num = (v: any, d = 0) => (typeof v === 'number' ? v : Number(v)) || d
 
 /**
- * Coerce anything to a finite number, or fallback.
+ * Accepts either the raw JSON you uploaded (flat CSV-style keys)
+ * or a partially-structured Settings object, and returns a
+ * normalized Settings with the fields pricing.ts expects.
  */
-function num(v: unknown, fallback = 0): number {
-  const n = typeof v === 'string' && v.trim() === '' ? NaN : Number(v)
-  return Number.isFinite(n) ? n : fallback
-}
+export function normalizeSettings(raw: any): Settings {
+  const s: any = { ...(raw || {}) }
 
-/**
- * Normalize finishing uplift map: ensure numbers, drop invalids, clamp >= 0.
- */
-function normalizeUplifts(src: any): Partial<Record<Finishing, number>> {
-  const out: Partial<Record<Finishing, number>> = {}
-  if (!src || typeof src !== 'object') return out
-      ;(['KissCutOnRoll', 'CutIntoSheets', 'IndividuallyCut', 'None'] as Finishing[]).forEach((key) => {
-    if (key in src) {
-      const v = Math.max(0, num(src[key], 0))
-      if (v) out[key] = v
-    }
-  })
-  return out
-}
+  // ---------- Margins / master caps (keep existing if already present) ----------
+  s.vinylMarginMm = num(raw['Vinyl Sign Margin mm'], s.vinylMarginMm)
+  s.substrateMarginMm = num(raw['Substrate Sign Margin mm'], s.substrateMarginMm)
 
-/**
- * Normalize complexity cost map: ensure numbers, drop invalids, clamp >= 0.
- */
-function normalizeComplexity(src: any): Partial<Record<Complexity, number>> {
-  const out: Partial<Record<Complexity, number>> = {}
-  if (!src || typeof src !== 'object') return out
-      ;(['Basic', 'Standard', 'Complex'] as Complexity[]).forEach((key) => {
-    if (key in src) {
-      const v = Math.max(0, num(src[key], 0))
-      if (v) out[key] = v
-    }
-  })
-  return out
-}
+  // Optional master caps (0/undefined means "no cap"; handled in pricing.ts)
+  if (s.masterMaxPrintWidthMm == null) s.masterMaxPrintWidthMm = num(raw.masterMaxPrintWidthMm)
+  if (s.masterMaxCutWidthMm == null) s.masterMaxCutWidthMm = num(raw.masterMaxCutWidthMm)
 
-/**
- * Normalize incoming Settings — coalesce synonyms, ensure defaults,
- * and produce shapes pricing.ts understands (nested + flat delivery).
- */
-export function normalizeSettings(s: Partial<Settings> | undefined): Settings {
-  const src: any = s ?? {}
+  // ---------- Ink / multipliers ----------
+  s.inkCostPerSqm = num(raw['Ink Cost sqm'], s.inkCostPerSqm)
+  s.profitMultiplier = num(raw['Sell Multiplier'], s.profitMultiplier || 1)
 
-  // ---- Synonyms / preferred keys
-  const inkElecPerSqm   = num(src.inkElecPerSqm ?? src.inkCostPerSqm, 0)
-  const appTapePerSqm   = num(src.appTapePerSqm ?? src.applicationTapePerSqm, 0)
-  const profitMultiplier = (() => {
-    const v = num(src.profitMultiplier, 1)
-    return v > 0 ? v : 1
-  })()
+  // ---------- Delivery base + postage bands ----------
+  const baseFee = num(raw['Delivery Base'], s.delivery?.baseFee)
+  const bands: any[] = []
 
-  // ---- Delivery: build a nested representation first
-  // Accept either src.delivery (nested) or flat deliveryBase + deliveryBands
-  const nestedDelivery: {
-    baseFee: number
-    bands: Array<{
-      maxGirthCm?: number
-      maxSumCm?: number
-      price?: number
-      surcharge?: number
-      name?: string
-    }>
-  } = (() => {
-    // If already nested with bands, normalize it
-    if (src.delivery && Array.isArray(src.delivery.bands)) {
-      const baseFee = num(src.delivery.baseFee, num(src.deliveryBase, 0))
-      const bands = (src.delivery.bands as any[]).map((b) => ({
-        maxGirthCm: typeof b?.maxGirthCm === 'number' ? b.maxGirthCm : undefined,
-        maxSumCm:   typeof b?.maxSumCm   === 'number' ? b.maxSumCm   : undefined,
-        price:      Number.isFinite(num(b?.price, NaN)) ? num(b?.price, NaN) : undefined,
-        surcharge:  typeof b?.surcharge  === 'number' ? num(b.surcharge, 0) : undefined,
-        name:       typeof b?.name === 'string' ? b.name : undefined,
-      }))
-      return { baseFee, bands }
-    }
+  const p100 = raw['Postage ≤ 100 cm']
+  const p150 = raw['Postage ≤ 150 cm']
+  const p200 = raw['Postage ≤ 200 cm']
+  const p200p = raw['Postage > 200 cm']
 
-    // Else, synthesize nested from flat
-    const baseFee = num(src.deliveryBase, 0)
-    const bands = Array.isArray(src.deliveryBands)
-        ? (src.deliveryBands as any[]).map((b) => ({
-          // Source only guarantees maxSumCm + surcharge
-          maxSumCm: typeof b?.maxSumCm === 'number' ? num(b.maxSumCm, Infinity) : undefined,
-          surcharge: typeof b?.surcharge === 'number' ? num(b.surcharge, 0) : undefined,
-          // Derive a stable label; price computed later by pricing if needed
-          name: typeof b?.name === 'string' ? b.name : (typeof b?.maxSumCm === 'number' ? `${Math.round(b.maxSumCm)} cm` : undefined),
-        }))
-        : []
-    return { baseFee, bands }
-  })()
-
-  // ---- Uplifts / complexity maps
-  const finishingUplifts = normalizeUplifts(src.finishingUplifts)
-  const complexityPerSticker = normalizeComplexity(src.complexityPerSticker)
-
-  // ---- Required base fields (defaults)
-  const masterMaxPrintWidthMm = num(src.masterMaxPrintWidthMm, 2000)
-  const masterMaxCutWidthMm   = num(src.masterMaxCutWidthMm, 2000)
-  const vinylMarginMm         = num(src.vinylMarginMm, 5)
-  const substrateMarginMm     = num(src.substrateMarginMm, 5)
-  const tileOverlapMm         = num(src.tileOverlapMm, 10)
-  const vinylWasteLmPerJob    = num(src.vinylWasteLmPerJob, 1)
-
-  const setupFee              = num(src.setupFee, 0)
-  const cutPerSign            = num(src.cutPerSign, 0)
-
-  const vatRatePct            = num(src.vatRatePct, 20)
-
-  // ---- Also provide flat delivery for backward-compat consumers
-  const deliveryBase = num(src.deliveryBase ?? nestedDelivery.baseFee, 0)
-  const deliveryBands =
-      Array.isArray(src.deliveryBands) && src.deliveryBands.length
-          ? (src.deliveryBands as any[]).map((b) => ({
-            maxSumCm: num(b?.maxSumCm, Infinity),
-            surcharge: num(b?.surcharge, 0),
-          }))
-          : (nestedDelivery.bands ?? []).map((b) => {
-            const max = num(b?.maxGirthCm ?? b?.maxSumCm, Infinity)
-            const price = num(b?.price, NaN)
-            // Convert absolute price → surcharge relative to base fee
-            const surcharge = Number.isFinite(price) ? Math.max(0, price - deliveryBase) : num(b?.surcharge, 0)
-            return { maxSumCm: max, surcharge }
-          })
-
-  // ---- Final, fully-normalized Settings object
-  const out: Settings = {
-    masterMaxPrintWidthMm,
-    masterMaxCutWidthMm,
-    vinylMarginMm,
-    substrateMarginMm,
-    tileOverlapMm,
-    vinylWasteLmPerJob,
-
-    setupFee,
-    cutPerSign,
-
-    // Preferred cost keys
-    inkElecPerSqm,
-    appTapePerSqm,
-    profitMultiplier,
-
-    // Optional maps
-    finishingUplifts,
-    complexityPerSticker,
-
-    // Flat delivery (legacy/compat)
-    deliveryBase,
-    deliveryBands,
-
-    // Nested delivery (new/normalized)
-    delivery: {
-      baseFee: deliveryBase,
-      bands: (nestedDelivery.bands ?? []).map((b) => ({
-        maxGirthCm: typeof b?.maxGirthCm === 'number' ? b.maxGirthCm : undefined,
-        maxSumCm:   typeof b?.maxSumCm   === 'number' ? b.maxSumCm   : undefined,
-        price:      Number.isFinite(num(b?.price, NaN)) ? num(b?.price, NaN) : undefined,
-        surcharge:  typeof b?.surcharge  === 'number' ? num(b.surcharge, 0) : undefined,
-        name:       typeof b?.name === 'string' ? b.name : undefined,
-      })),
-    },
-
-    vatRatePct,
+  // Use "surcharge" style (base + surcharge) — this matches pricing.ts logic
+  if ([p100, p150, p200, p200p].some(v => v != null && v !== '')) {
+    bands.push(
+        { name: '≤ 100 cm', maxGirthCm: 100, surcharge: num(p100) },
+        { name: '≤ 150 cm', maxGirthCm: 150, surcharge: num(p150) },
+        { name: '≤ 200 cm', maxGirthCm: 200, surcharge: num(p200) },
+        { name: '> 200 cm', maxGirthCm: Infinity, surcharge: num(p200p) },
+    )
   }
 
-  return out
+  s.delivery = s.delivery || {}
+  s.delivery.baseFee = baseFee
+  if (bands.length) s.delivery.bands = bands
+
+  // ---------- (optional) waste/overlap defaults ----------
+  if (s.tileOverlapMm == null) s.tileOverlapMm = num(raw.tileOverlapMm, 0)
+  if (s.vinylWasteLmPerJob == null) s.vinylWasteLmPerJob = num(raw.vinylWasteLmPerJob, 0)
+
+  // ---------- Application/white-backing (LM-based) ----------
+  s.applicationTapePerLm = num(raw['Application Tape Cost per lm'], s.applicationTapePerLm)
+  s.whiteBackingPerLm = num(raw['White Backed Vinyl lm'], s.whiteBackingPerLm)
+
+  // Back-compat if you still use sqm-based charges anywhere
+  s.applicationTapePerSqm = num(raw.applicationTapePerSqm, s.applicationTapePerSqm)
+  s.whiteBackingPerSqm = num(raw.whiteBackingPerSqm, s.whiteBackingPerSqm)
+
+  // ---------- Plotter cut fees (MATCH select values in the UI) ----------
+  s.plotterCutSetup = {
+    None: 0,
+    KissOnRoll: num(raw['Kiss Cut On Roll Setup Fee']),
+    KissOnSheets: num(raw['Kiss Cut On Sheets Setup Fee']),
+    CutIndividually: num(raw['Cut Individually Setup Fee']),
+    CutAndWeeded: num(raw['Cut & Weeded Setup Fee']),
+  }
+
+  // Per-piece fees (qty-based)
+  s.plotterCutPerPiece = {
+    // When "None", treat as the "Cost Per Cut Vinyl Only"
+    None: num(raw['Cost Per Cut Vinyl Only']),
+    KissOnRoll: num(raw['Kiss Cut On Roll']),
+    KissOnSheets: num(raw['Kiss Cut On Sheets']),
+    CutIndividually: num(raw['Cut Individually']),
+    CutAndWeeded: num(raw['Cut & Weeded']),
+  }
+
+  // ---------- Other optional knobs (kept for compatibility) ----------
+  s.setupFee = num(raw.setupFee, s.setupFee || 0)
+  s.cutPerSign = num(raw.cutPerSign, s.cutPerSign || 0)
+
+  return s as Settings
 }

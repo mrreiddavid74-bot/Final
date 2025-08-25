@@ -12,14 +12,15 @@ export const DEFAULT_SETTINGS: Settings = {
   tileOverlapMm: 10,
   vinylWasteLmPerJob: 1,
 
-  // Costs
+  // Costs (base fallbacks; overridden by uploaded costs.json)
   setupFee: 5.0,
   cutPerSign: 0.25,
   appTapePerSqm: 2.0,       // alias supported as applicationTapePerSqm
   inkElecPerSqm: 4.0,       // alias supported as inkCostPerSqm
   profitMultiplier: 1.8,
 
-  // Optional finishing uplifts
+  // Optional finishing uplifts (percentage multipliers on base)
+  // These keys should match your Finishing union type.
   finishingUplifts: {
     IndividuallyCut: 0.10,
     CutIntoSheets: 0.05,
@@ -27,13 +28,23 @@ export const DEFAULT_SETTINGS: Settings = {
     None: 0.00,
   },
 
-  // ✅ NEW: Vinyl Cut Options defaults (0 = off, until your CSV/Excel provides values)
+  // ✅ VINYL CUT OPTIONS (plotter) — defaults (CSV/JSON upload will override)
   plotterPerimeterPerM: 0,
-  plotterCutPerPiece: { None: 0, KissCutOnRoll: 0, CutIntoSheets: 0, IndividuallyCut: 0 },
+  // Keys must match PlotterCut: 'None' | 'KissOnRoll' | 'KissOnSheets' | 'CutIndividually' | 'CutAndWeeded'
+  plotterCutPerPiece: {
+    None: 0,
+    KissOnRoll: 0,
+    KissOnSheets: 0,
+    CutIndividually: 0,
+    CutAndWeeded: 0,
+  },
+  // Cutting style uplift multipliers
   cuttingStyleUplifts: { Standard: 0, Intricate: 0 },
+
+  // White backing rate (your normalize step can map "White Backed Vinyl lm" to a per-lm or per-sqm field as needed)
   whiteBackingPerSqm: 0,
 
-  // Delivery (flat form)
+  // Delivery (legacy flat-form; normalize() also supports new structured delivery)
   deliveryBase: 5,
   deliveryBands: [
     { maxSumCm: 100, surcharge: 0 },

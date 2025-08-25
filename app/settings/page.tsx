@@ -149,9 +149,7 @@ export default function SettingsPage() {
                                     e.currentTarget.value = ''
                                 }}
                             />
-                            <div className="text-xs opacity-70 mt-1">
-                                CSV format: two columns — <code>Key,Value</code> (header optional).
-                            </div>
+
                         </div>
 
                         <button className="btn" onClick={reload}>

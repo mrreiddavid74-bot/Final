@@ -10,8 +10,16 @@ export type Finishing = 'KissCutOnRoll' | 'CutIntoSheets' | 'IndividuallyCut' | 
 export type Complexity = 'Basic' | 'Standard' | 'Complex'
 export type Orientation = 'Vertical' | 'Horizontal'
 
-// NEW: options used by the Vinyl Cut Options card
-export type PlotterCut = 'None' | 'KissCutOnRoll' | 'CutIntoSheets' | 'IndividuallyCut'
+
+// lib/types.ts
+export type PlotterCut =
+    | 'None'
+    | 'KissOnRoll'
+    | 'KissOnSheets'
+    | 'CutIndividually'
+    | 'CutAndWeeded'
+
+
 export type CuttingStyle = 'Standard' | 'Intricate'
 
 export type Settings = {
