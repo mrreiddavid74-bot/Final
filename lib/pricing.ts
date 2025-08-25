@@ -13,7 +13,7 @@ import { normalizeSettings } from './settings-normalize'
 const mm2ToSqm = (mm2: number) => mm2 / 1_000_000
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n))
 
-// Treat master caps 0/undefined as "no cap"
+// Treat master cap 0/undefined as "no cap"
 export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
   const masterPrint =
       settings.masterMaxPrintWidthMm && settings.masterMaxPrintWidthMm > 0
@@ -75,8 +75,8 @@ function computeVinylLength(
   const W = input.widthMm || 0
   const H = input.heightMm || 0
   const qty = input.qty || 1
-  const gutter = (s as any).vinylMarginMm || 0
-  const overlap = (s as any).tileOverlapMm || 0
+  const gutter = s.vinylMarginMm || 0
+  const overlap = s.tileOverlapMm || 0
 
   // Default: auto unless explicitly set to false
   const auto = input.vinylAuto !== false
@@ -162,7 +162,6 @@ export function deliveryFromGirth(
   const s: any = settings as any
   const girthCm = (wMm + hMm + tMm) / 10
 
-  // New normalized structure: { delivery: { baseFee, bands: [ {maxGirthCm|maxSumCm, surcharge|price, name} ] } }
   if (s.delivery?.bands?.length) {
     type BandNorm = { max: number; price: number; name: string }
     const pick = (b: any): BandNorm => ({
@@ -180,7 +179,9 @@ export function deliveryFromGirth(
                   : s.delivery.baseFee || 0,
       name:
           b.name ??
-          `${Math.round(typeof b.maxGirthCm === 'number' ? b.maxGirthCm : (b.maxSumCm ?? 0))} cm`,
+          `${Math.round(
+              typeof b.maxGirthCm === 'number' ? b.maxGirthCm : (b.maxSumCm ?? 0),
+          )} cm`,
     })
     const norm: BandNorm[] = s.delivery.bands
         .map(pick)
@@ -189,7 +190,6 @@ export function deliveryFromGirth(
     return { band: band.name, price: band.price }
   }
 
-  // Legacy shape fallback
   if (typeof (s as any).deliveryBase === 'number' && Array.isArray((s as any).deliveryBands)) {
     const base = (s as any).deliveryBase
     type BandNorm = { max: number; price: number; name: string }
@@ -216,18 +216,23 @@ export function priceSingle(
   const s = normalizeSettings(settings as any)
   const notes: string[] = []
 
-  // Printed area used for ink (sqm)
+  // Printed area used for ink + (optionally) white backing
   const areaSqm =
       input.mode === 'SolidColourCutVinyl' || input.mode === 'SubstrateOnly'
           ? 0
           : mm2ToSqm((input.widthMm || 0) * (input.heightMm || 0) * (input.qty || 1))
 
   // Simple rectangle perimeter (final piece), multiplied by qty
-  const perimeterM = (((input.widthMm || 0) + (input.heightMm || 0)) * 2) / 1000 * (input.qty || 1)
+  const perimeterM =
+      (((input.widthMm || 0) + (input.heightMm || 0)) * 2) / 1000 * (input.qty || 1)
 
-  // ---------- Running totals ----------
   let materials = 0
-  const vinylCostItems: { media: string; lm: number; pricePerLm: number; cost: number }[] = []
+  const vinylCostItems: {
+    media: string
+    lm: number
+    pricePerLm: number
+    cost: number
+  }[] = []
   const substrateCostItems: {
     material: string
     sheet: string
@@ -236,11 +241,10 @@ export function priceSingle(
     pricePerSheet: number
     cost: number
   }[] = []
-
-  const inkRate = (s as any).inkElecPerSqm ?? (s as any).inkCostPerSqm ?? 0
+  const inkRate = s.inkElecPerSqm ?? s.inkCostPerSqm ?? 0
   let ink = areaSqm * inkRate
-  let setup = (s as any).setupFee || 0
-  let cutting = ((s as any).cutPerSign || 0) * (input.qty || 1)
+  let setup = s.setupFee
+  let cutting = s.cutPerSign * (input.qty || 1)
   let finishingUplift = 0
 
   let vinylLmRaw = 0
@@ -250,20 +254,22 @@ export function priceSingle(
   let usagePct: number | undefined
 
   const mediaItem = input.vinylId ? media.find(m => m.id === input.vinylId) : undefined
-  const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
+  const substrateItem = input.substrateId
+      ? substrates.find(su => su.id === input.substrateId)
+      : undefined
 
   const addVinylCost = (lm: number, pricePerLm: number, printed: boolean) => {
-    const waste = printed ? (s as any).vinylWasteLmPerJob || 0 : 0
+    const waste = printed ? s.vinylWasteLmPerJob || 0 : 0
     vinylLmRaw = lm
     vinylLmWithWaste = lm + waste
     materials += vinylLmWithWaste * pricePerLm
   }
 
-  // ---------- SOLID COLOUR CUT VINYL ----------
+  // --- SOLID COLOUR CUT VINYL ---
   if (input.mode === 'SolidColourCutVinyl') {
     if (!mediaItem) throw new Error('Select a vinyl media')
     const { effectiveCutWidthMm } = getEffectiveWidths(mediaItem, s)
-    const gutter = (s as any).vinylMarginMm || 0
+    const gutter = s.vinylMarginMm || 0
     const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + gutter)))
     const rows = Math.ceil((input.qty || 1) / perRow)
     const lm = (rows * ((input.heightMm || 0) + gutter)) / 1000
@@ -276,19 +282,29 @@ export function priceSingle(
     })
     notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
 
-    // Optional: complexity surcharge (left intact if you use it)
-    const _cps = (s as any).complexityPerSticker as Partial<Record<string, number>> | undefined
+    const _cps = (s as any).complexityPerSticker as
+        | Partial<Record<string, number>>
+        | undefined
     if (input.complexity && _cps && typeof _cps[input.complexity] === 'number') {
       cutting += (_cps[input.complexity] as number) * (input.qty || 1)
     }
 
-    // Finishing uplift
+    if (input.applicationTape) {
+      const tapeArea = mm2ToSqm(
+          (((input.widthMm || 0) + (s.vinylMarginMm || 0)) *
+              ((input.heightMm || 0) + (s.vinylMarginMm || 0)) *
+              (input.qty || 1)),
+      )
+      const tapeRate = s.appTapePerSqm ?? s.applicationTapePerSqm ?? 0
+      materials += tapeArea * tapeRate
+    }
+
     const fin: Finishing = input.finishing ?? 'None'
     const _uplift = (s as any).finishingUplifts?.[fin] ?? 0
     finishingUplift += _uplift * (materials + ink + cutting + setup)
   }
 
-  // ---------- PRINTED VINYL MODES (Print & Cut / Mounted) ----------
+  // --- PRINTED VINYL MODES (no 'PrintedVinylOnly') ---
   if (input.mode === 'PrintAndCutVinyl' || input.mode === 'PrintedVinylOnSubstrate') {
     if (!mediaItem) throw new Error('Select a printable media')
 
@@ -303,17 +319,28 @@ export function priceSingle(
     })
     notes.push(v.note)
 
+    // Application tape for Print & Cut only
+    if (input.mode === 'PrintAndCutVinyl' && input.applicationTape) {
+      const tapeArea = mm2ToSqm(
+          (((input.widthMm || 0) + (s.vinylMarginMm || 0)) *
+              ((input.heightMm || 0) + (s.vinylMarginMm || 0)) *
+              (input.qty || 1)),
+      )
+      const tapeRate = s.appTapePerSqm ?? s.applicationTapePerSqm ?? 0
+      materials += tapeArea * tapeRate
+    }
+
     // Finishing uplift
     const fin: Finishing = input.finishing ?? 'None'
     const _uplift = (s as any).finishingUplifts?.[fin] ?? 0
     finishingUplift += _uplift * (materials + ink + cutting + setup)
   }
 
-  // ---------- SUBSTRATE COSTS ----------
+  // --- SUBSTRATE COSTS ---
   if (input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly') {
     if (!substrateItem) throw new Error('Select a substrate')
-    const usableW = Math.max(0, substrateItem.sizeW - 2 * ((s as any).substrateMarginMm || 0))
-    const usableH = Math.max(0, substrateItem.sizeH - 2 * ((s as any).substrateMarginMm || 0))
+    const usableW = Math.max(0, substrateItem.sizeW - 2 * (s.substrateMarginMm || 0))
+    const usableH = Math.max(0, substrateItem.sizeH - 2 * (s.substrateMarginMm || 0))
     const usableArea = Math.max(1, usableW * usableH)
     const signArea = (input.widthMm || 0) * (input.heightMm || 0)
     const neededSheetsRaw = (signArea * (input.qty || 1)) / usableArea
@@ -342,59 +369,79 @@ export function priceSingle(
   }
 
   // =========================
-  // VINYL CUT OPTIONS PRICING (now wired to costs.json)
+  // VINYL CUT OPTIONS PRICING
   // =========================
-
-  {
-    const Q = input.qty || 1
-    const cut = input.plotterCut ?? 'None'
-    const setupFee = ((s as any).plotterCutSetup?.[cut] ?? 0) as number
-    const perFee = ((s as any).plotterCutPerPiece?.[cut] ?? 0) as number
-    const add = setupFee + perFee * Q
-
-    if (add) {
+  // Plotter cut: setup + per-piece
+  if (input.plotterCut && input.plotterCut !== 'None') {
+    const perimRate = s.plotterPerimeterPerM ?? 0
+    const perimAdd = perimRate * perimeterM
+    const setupMap: Record<string, number> = {
+      KissOnRoll: s.plotterCutSetup?.KissOnRoll ?? 0,
+      KissOnSheets: s.plotterCutSetup?.KissOnSheets ?? 0,
+      CutIndividually: s.plotterCutSetup?.CutIndividually ?? 0,
+      CutAndWeeded: s.plotterCutSetup?.CutAndWeeded ?? 0,
+      None: 0,
+    }
+    const perPieceMap: Record<string, number> = {
+      KissOnRoll: s.plotterCutPerPiece?.KissOnRoll ?? 0,
+      KissOnSheets: s.plotterCutPerPiece?.KissOnSheets ?? 0,
+      CutIndividually: s.plotterCutPerPiece?.CutIndividually ?? 0,
+      CutAndWeeded: s.plotterCutPerPiece?.CutAndWeeded ?? 0,
+      None: 0,
+    }
+    const setupAdd = setupMap[input.plotterCut] ?? 0
+    const perPieceAdd = (perPieceMap[input.plotterCut] ?? 0) * (input.qty || 1)
+    cutting += perimAdd + setupAdd + perPieceAdd
+    const label = input.plotterCut
+    const msg = `Cut option: ${label} — setup £${setupAdd.toFixed(2)} + ${(input.qty || 1)} × £${(perPieceMap[input.plotterCut] ?? 0).toFixed(2)} = £${(setupAdd + perPieceAdd).toFixed(2)}`
+    notes.push(msg)
+  } else {
+    // None -> a simple per-sign cut (if configured)
+    const perPiece = s.cutPerSign ?? 0
+    if (perPiece) {
+      const add = perPiece * (input.qty || 1)
       cutting += add
+      notes.push(`Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${perPiece.toFixed(2)} = £${add.toFixed(2)}`)
+    } else {
+      notes.push(`Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${(s.cutPerSign ?? 0).toFixed(2)} = £${((s.cutPerSign ?? 0) * (input.qty || 1)).toFixed(2)}`)
+    }
+  }
+
+  // White backing (area-based). Only when printed.
+  if (input.backedWithWhite && areaSqm > 0) {
+    const whiteRate = s.whiteBackingPerSqm ?? 0
+    if (whiteRate) {
+      const add = whiteRate * areaSqm
+      materials += add
       notes.push(
-          `Cut option: ${cut} — setup £${setupFee.toFixed(2)} + ${Q} × £${perFee.toFixed(2)} = £${add.toFixed(2)}`
+          `White backing: ${areaSqm.toFixed(2)} m² × £${whiteRate.toFixed(2)} = £${add.toFixed(2)}`,
       )
     }
   }
 
-  // Application tape: prefer LM-based; fallback to SQM if only that exists
-  if (input.applicationTape) {
-    const rateLm = (s as any).applicationTapePerLm ?? 0
-    const rateSqm = (s as any).applicationTapePerSqm ?? 0
-    if (rateLm && vinylLmWithWaste > 0) {
-      const add = rateLm * vinylLmWithWaste
-      materials += add
-      notes.push(`Application tape: ${vinylLmWithWaste.toFixed(2)} lm × £${rateLm.toFixed(2)} = £${add.toFixed(2)}`)
-    } else if (rateSqm && areaSqm > 0) {
-      const add = rateSqm * areaSqm
-      materials += add
-      notes.push(`Application tape: ${areaSqm.toFixed(2)} m² × £${rateSqm.toFixed(2)} = £${add.toFixed(2)}`)
-    }
-  }
-
-  // White backing (LM-based preferred; fallback to SQM)
-  if (input.backedWithWhite) {
-    const whiteLmRate = (s as any).whiteBackingPerLm ?? 0
-    const whiteSqmRate = (s as any).whiteBackingPerSqm ?? 0
-    if (whiteLmRate && vinylLmWithWaste > 0) {
-      const add = whiteLmRate * vinylLmWithWaste
-      materials += add
-      notes.push(`White backing: ${vinylLmWithWaste.toFixed(2)} lm × £${whiteLmRate.toFixed(2)} = £${add.toFixed(2)}`)
-    } else if (whiteSqmRate && areaSqm > 0) {
-      const add = whiteSqmRate * areaSqm
-      materials += add
-      notes.push(`White backing: ${areaSqm.toFixed(2)} m² × £${whiteSqmRate.toFixed(2)} = £${add.toFixed(2)}`)
+  // Cutting style uplift (percentage on base)
+  if (input.cuttingStyle) {
+    const uplift = s.cuttingStyleUplifts?.[input.cuttingStyle] ?? 0
+    if (uplift) {
+      const baseSoFar = materials + ink + cutting + setup
+      const add = uplift * baseSoFar
+      finishingUplift += add
+      notes.push(
+          `Cutting style (${input.cuttingStyle}): +${Math.round(uplift * 100)}% = £${add.toFixed(2)}`,
+      )
     }
   }
 
   // =========================
+  // TOTALS (Revised rule)
+  // =========================
+  // ❗ Apply Sell Multiplier ONLY to (materials + ink),
+  //    then add the rest (setup + cutting + finishingUplift) afterwards.
+  const profit = s.profitMultiplier ?? 1
+  const materialsInk = materials + ink
+  const sellOnMaterialsInk = materialsInk * profit
+  const preDelivery = sellOnMaterialsInk + setup + cutting + finishingUplift
 
-  const base = setup + materials + ink + cutting + finishingUplift
-  const profit = (s as any).profitMultiplier ?? 1
-  const preDelivery = base * profit
   const { band, price: bandPrice } = deliveryFromGirth(
       s,
       input.widthMm || 0,
@@ -403,6 +450,8 @@ export function priceSingle(
   const deliveryBase = (s as any).delivery?.baseFee ?? (s as any).deliveryBase ?? 0
   const delivery = deliveryBase + bandPrice
   const total = preDelivery + delivery
+
+  notes.push(`Pricing model: (Materials + Ink) × ${profit} + Setup + Cutting + Uplifts`)
 
   return {
     // Money
