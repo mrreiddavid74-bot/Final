@@ -263,13 +263,13 @@ export default function SinglePage() {
     allowedSplitsForOrientation,
   ])
 
-  // Ready to price?
+  // ---------- READY TO PRICE (single definition) ----------
   const ready =
       !loading &&
       (input.mode === 'SubstrateOnly' || (!!input.vinylId && media.some(m => m.id === input.vinylId))) &&
       (!isSubstrateMode || (!!input.substrateId && substrates.some(s => s.id === input.substrateId)))
 
-  // ---------- VINYL SPLIT OPTIONS PREVIEW (restored) ----------
+  // ---------- VINYL SPLIT OPTIONS PREVIEW (reflects double-sided) ----------
   const vinylPreview = useMemo(() => {
     const m = media.find(x => x.id === input.vinylId)
     if (!m) return { text: '—', lmText: '—' }
@@ -281,6 +281,7 @@ export default function SinglePage() {
     const W = input.widthMm || 0
     const H = input.heightMm || 0
     const Q = Math.max(1, input.qty || 1)
+    const sides = input.doubleSided ? 2 : 1
 
     const perRow = (acrossDim: number) => Math.max(1, Math.floor(effW / (acrossDim + gutter)))
     const mmText = (mm: number) => `${Math.round(mm)}mm (${(mm / 1000).toFixed(2)}m)`
@@ -302,16 +303,22 @@ export default function SinglePage() {
       const fitsAsIs = W <= effW
       const fitsRot  = H <= effW
       if (fitsAsIs || fitsRot) {
-        const cand: Array<{ across: number; rows: number; totalMm: number; label: string }> = []
-        if (fitsAsIs) cand.push({ ...packAcross(W, H, Q), label: `${Math.round(W)} × ${Math.round(H)}mm` })
-        if (fitsRot)  cand.push({ ...packAcross(H, W, Q), label: `${Math.round(W)} × ${Math.round(H)}mm` })
+        const cand: Array<{ across: number; rows: number; totalMm: number }> = []
+        if (fitsAsIs) cand.push(packAcross(W, H, Q))
+        if (fitsRot)  cand.push(packAcross(H, W, Q))
         const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
-        return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.totalMm) }
+        return {
+          text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`,
+          lmText: mmText(pick.totalMm * sides),
+        }
       }
       const t = tileColumnsTotal(W, H, Q)
       const tileW = W / t.cols
       const across = perRow(tileW)
-      return { text: `${across} per row — ${t.cols} × ${Math.round(W / t.cols)} × ${Math.round(H)}mm`, lmText: mmText(t.totalMm) }
+      return {
+        text: `${across} per row — ${t.cols} × ${Math.round(W / t.cols)} × ${Math.round(H)}mm`,
+        lmText: mmText(t.totalMm * sides),
+      }
     }
 
     const n = Math.max(1, vinylSplitOverride)
@@ -333,21 +340,21 @@ export default function SinglePage() {
       const disp = n > 1
           ? `${across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
           : `${across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
-      return { text: disp, lmText: mmText(pick.totalMm) }
+      return { text: disp, lmText: mmText(pick.totalMm * sides) }
     } else {
       const pick = candidates.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
       const disp = n > 1
           ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm`
           : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`
-      return { text: disp, lmText: mmText(pick.totalMm) }
+      return { text: disp, lmText: mmText(pick.totalMm * sides) }
     }
   }, [
-    media, input.vinylId, input.widthMm, input.heightMm, input.qty,
+    media, input.vinylId, input.widthMm, input.heightMm, input.qty, input.doubleSided,
     vinylAutoMode, vinylSplitOverride, vinylOrientation,
     settings.masterMaxPrintWidthMm, settings.vinylMarginMm, settings.tileOverlapMm,
   ])
 
-  // Pricing (kept in sync with the Vinyl Split Options UI)
+  // ---------- PRICING ----------
   const result: PriceBreakdown | { error: string } | null = useMemo(() => {
     if (!ready) return null
     try {
