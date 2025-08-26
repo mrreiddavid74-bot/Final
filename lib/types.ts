@@ -138,7 +138,7 @@ export type SingleSignInput = {
   finishing?: Finishing
   complexity?: Complexity
 
-  // Substrate/visual splits (also reused to display "Vinyl splits" text)
+  // Substrate/visual splits
   panelSplits?: number            // 0 = none (one piece)
   panelOrientation?: Orientation  // which dimension to split along
 

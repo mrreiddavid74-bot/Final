@@ -28,8 +28,10 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
 function packAcrossWidth(acrossMm: number, lengthMm: number, effW: number, pieces: number, gutter: number) {
   const perRow = Math.max(1, Math.floor(effW / (acrossMm + gutter)))
   const rows = Math.ceil(pieces / perRow)
-  const totalMm = rows * lengthMm + Math.max(0, rows - 1) * gutter
+  const totalMm = rows * lengthDim(lengthMm) + Math.max(0, rows - 1) * gutter
   return { perRow, rows, totalMm, totalLm: totalMm / 1000 }
+
+  function lengthDim(mm: number) { return mm }
 }
 
 function tileColumns(acrossMm: number, lengthMm: number, effW: number, pieces: number, overlap: number, gutter: number) {
@@ -74,10 +76,10 @@ function computeVinylLm(
   const pieces = qty * n
 
   if (pieceAcross <= effW) {
-    const p = packAcrossWidth(pieceAcross, pieceLength, effW, pieces, s.vinylMarginMm || 0)
+    const p = packAcrossWidth(pieceAcross, pieceLength, effW, pieces, gutter)
     return { lmBase: p.totalLm, note: `Custom ${n}× ${input.vinylSplitOrientation}, ${p.perRow}/row, ${p.rows} row(s) @ ${Math.round(effW)}mm` }
   }
-  const t = tileColumns(pieceAcross, pieceLength, effW, pieces, s.tileOverlapMm || 0, s.vinylMarginMm || 0)
+  const t = tileColumns(pieceAcross, pieceLength, effW, pieces, overlap, gutter)
   return { lmBase: t.totalLm, note: `Custom ${n}× ${input.vinylSplitOrientation}, tiled (${t.cols} col) @ ${Math.round(effW)}mm` }
 }
 
@@ -201,48 +203,46 @@ export function priceSingle(
     finishingUplift += upliftPct * (materials + ink + cutting + setup)
   }
 
-  // C) SUBSTRATE — discrete packing per sheet (fix for undercounting)
+  // C) SUBSTRATE — discrete packing per sheet (respects substrate splits)
   if (input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly') {
     if (!substrateItem) throw new Error('Select a substrate')
 
     const usableW = Math.max(0, substrateItem.sizeW - 2 * (s.substrateMarginMm || 0))
     const usableH = Math.max(0, substrateItem.sizeH - 2 * (s.substrateMarginMm || 0))
-    const pieceW = input.widthMm || 0
-    const pieceH = input.heightMm || 0
+
+    // split panel geometry
+    const splits = Math.max(0, input.panelSplits ?? 0)
+    const N = splits === 0 ? 1 : splits
+    const ori = (input.panelOrientation ?? 'Vertical') as 'Vertical' | 'Horizontal'
+
+    const pieceW = ori === 'Vertical' ? (input.widthMm  || 0) / N : (input.widthMm  || 0)
+    const pieceH = ori === 'Vertical' ? (input.heightMm || 0)     : (input.heightMm || 0) / N
+
+    const qtyPanels = qty * N
 
     const fit = (sw: number, sh: number, pw: number, ph: number) =>
         Math.max(0, Math.floor(sw / pw)) * Math.max(0, Math.floor(sh / ph))
 
-    // Best of upright or rotated placement
     const perSheet = Math.max(
         fit(usableW, usableH, pieceW, pieceH),
         fit(usableW, usableH, pieceH, pieceW),
     )
 
-    // If even 1 doesn't fit, treat as 1 sheet per panel (and note it)
     const effectivePerSheet = perSheet > 0 ? perSheet : 1
     if (perSheet === 0) {
-      notes.push('⚠️ Panel does not fit full sheet; charge 1 sheet per panel or split substrate.')
+      notes.push('⚠️ Substrate panel does not fit usable sheet area; charging 1 sheet per panel.')
     }
 
-    const neededSheetsRaw = qty / effectivePerSheet
-    const chargedSheets = Math.ceil(neededSheetsRaw)
-    const sheetCost = substrateItem.pricePerSheet
+    const neededSheetsRaw = qtyPanels / effectivePerSheet
+    const chargedSheets   = Math.ceil(neededSheetsRaw)
+    const sheetCost       = substrateItem.pricePerSheet
 
     materials += sheetCost * chargedSheets
-    ;(sheetsUsed as number | undefined) = chargedSheets
+    sheetsUsed = chargedSheets
 
-    // Fraction only makes sense when all items fit on a single sheet
-    if (chargedSheets <= 1) {
-      const frac = neededSheetsRaw
-      sheetFraction = (frac <= 0.25 ? 0.25
-          : frac <= 0.5 ? 0.5
-              : frac <= 0.75 ? 0.75 : 1) as 0.25 | 0.5 | 0.75 | 1
-    }
-
-    // Simple utilization estimate for display: one piece vs usable area
+    // utilization (single panel vs usable area)
     const usableArea = Math.max(1, usableW * usableH)
-    const pieceArea = pieceW * pieceH
+    const pieceArea  = pieceW * pieceH
     usagePct = Math.min(100, (pieceArea / usableArea) * 100)
 
     substrateCostItems.push({
@@ -253,6 +253,11 @@ export function priceSingle(
       pricePerSheet: +sheetCost.toFixed(2),
       cost: +(chargedSheets * sheetCost).toFixed(2),
     })
+
+    // optional note for audit
+    if (splits > 0) {
+      notes.push(`Substrate split: ${N} × ${ori} → panel ${Math.round(pieceW)}×${Math.round(pieceH)}mm; ${effectivePerSheet} per sheet`)
+    }
   }
 
   // D) CUT OPTIONS
@@ -295,7 +300,7 @@ export function priceSingle(
 
   return {
     materials: +materials.toFixed(2),
-    ink: +(ink ?? 0).toFixed(2),
+    ink: +ink.toFixed(2),
     setup: +setup.toFixed(2),
     cutting: +cutting.toFixed(2),
     finishingUplift: +finishingUplift.toFixed(2),

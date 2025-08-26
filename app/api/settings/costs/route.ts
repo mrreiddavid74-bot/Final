@@ -4,18 +4,14 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic' // don't cache this route
-// export const revalidate = 0 // (either dynamic or revalidate=0 is fine)
+export const dynamic = 'force-dynamic'
 
-// Where we can write at runtime
 const RUNTIME_DIR = '/tmp/settings'
 const RUNTIME_FILE = path.join(RUNTIME_DIR, 'costs.json')
-
-// Bundled, read-only fallback (works both locally and in prod)
 const BUNDLED_FILE = path.join(process.cwd(), 'public', 'settings', 'costs.json')
 
 function sanitizeKey(k: unknown): string {
-    return String(k ?? '').trim().replace(/^\uFEFF/, '') // trim + strip BOM
+    return String(k ?? '').trim().replace(/^\uFEFF/, '')
 }
 
 function parseCsvKV(text: string): Record<string, unknown> {
@@ -27,7 +23,6 @@ function parseCsvKV(text: string): Record<string, unknown> {
     for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
         const raw = lines[i]
         if (!raw || !raw.trim()) continue
-        // split on first comma only (allow commas in value)
         const m = raw.match(/^\s*"?([^",]+)"?\s*,\s*"?(.+?)"?\s*$/)
         if (!m) continue
         const key = sanitizeKey(m[1])
@@ -40,18 +35,14 @@ function parseCsvKV(text: string): Record<string, unknown> {
 }
 
 export async function GET() {
-    // 1) Prefer runtime override stored in /tmp
     try {
         const buf = await fs.readFile(RUNTIME_FILE, 'utf8')
         return NextResponse.json(JSON.parse(buf))
     } catch {}
-
-    // 2) Fall back to bundled file under /public
     try {
         const buf = await fs.readFile(BUNDLED_FILE, 'utf8')
         return NextResponse.json(JSON.parse(buf))
     } catch {
-        // 3) Nothing available yet
         return NextResponse.json({}, { status: 200 })
     }
 }
@@ -74,11 +65,9 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400 })
             }
         } else {
-            // treat as CSV "Key,Value"
             obj = parseCsvKV(body)
         }
 
-        // Write to /tmp (writable in serverless)
         await fs.mkdir(RUNTIME_DIR, { recursive: true })
         await fs.writeFile(RUNTIME_FILE, JSON.stringify(obj, null, 2), 'utf8')
 
