@@ -118,6 +118,8 @@ export function priceSingle(
   const notes: string[] = []
 
   const qty = Math.max(1, input.qty || 1)
+
+  // Ink is area-based; set area to 0 for SolidColourCutVinyl and SubstrateOnly (removes ink cost)
   const areaSqm =
       input.mode === 'SolidColourCutVinyl' || input.mode === 'SubstrateOnly'
           ? 0
@@ -132,7 +134,7 @@ export function priceSingle(
   }[] = []
 
   const inkRate = s.inkElecPerSqm ?? 0
-  let ink = areaSqm * inkRate
+  let ink = areaSqm * inkRate // = 0 for SolidColourCutVinyl and SubstrateOnly
 
   // Default numeric settings to avoid undefined/NaN
   let setup = s.setupFee ?? 0
@@ -148,8 +150,12 @@ export function priceSingle(
   const mediaItem = input.vinylId ? media.find(m => m.id === input.vinylId) : undefined
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
+  // printed=true → add (settings waste) + 1.00 lm (explicit job waste) before multiplier
   const addVinylCost = (lmRaw: number, pricePerLm: number, printed: boolean) => {
-    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0
+    const baseWaste = printed ? (s.vinylWasteLmPerJob || 0) : 0
+    const extraPrintedWaste = printed ? 1 : 0 // <-- ALWAYS add +1.00 lm on printed jobs
+    const waste = baseWaste + extraPrintedWaste
+
     vinylLmRaw = lmRaw
     vinylLmWithWaste = lmRaw + waste
     materials += vinylLmWithWaste * pricePerLm
@@ -163,7 +169,7 @@ export function priceSingle(
     const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + gutter)))
     const rows = Math.ceil(qty / perRow)
     const lm = (rows * ((input.heightMm || 0) + gutter)) / 1000
-    addVinylCost(lm, mediaItem.pricePerLm, false)
+    addVinylCost(lm, mediaItem.pricePerLm, false) // no extra +1m for solid-only
     vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
     notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
 
@@ -185,9 +191,10 @@ export function priceSingle(
     let lm = v.lmBase
     if (input.doubleSided) lm *= 2
 
-    addVinylCost(lm, mediaItem.pricePerLm, true)
+    addVinylCost(lm, mediaItem.pricePerLm, true) // <-- includes +1.00 lm waste
     vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
     notes.push(v.note)
+    notes.push(`Printed vinyl waste: +1.00 lm added before multiplier`)
 
     if (input.applicationTape && s.applicationTapePerLm) {
       materials += lm * s.applicationTapePerLm
@@ -254,7 +261,6 @@ export function priceSingle(
       cost: +(chargedSheets * sheetCost).toFixed(2),
     })
 
-    // optional note for audit
     if (splits > 0) {
       notes.push(`Substrate split: ${N} × ${ori} → panel ${Math.round(pieceW)}×${Math.round(pieceH)}mm; ${effectivePerSheet} per sheet`)
     }

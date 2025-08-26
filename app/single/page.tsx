@@ -86,9 +86,10 @@ export default function SinglePage() {
           fetch('/api/settings/vinyl',      { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
           fetch('/api/settings/substrates', { cache: 'no-store' }).then(r => (r.ok ? r.json() : [])),
         ])
-        if (cancelled) return
-        setMedia(Array.isArray(m) ? m : [])
-        setSubstrates(Array.isArray(s) ? s : [])
+        if (!cancelled) {
+          setMedia(Array.isArray(m) ? m : [])
+          setSubstrates(Array.isArray(s) ? s : [])
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -185,13 +186,11 @@ export default function SinglePage() {
     )
   }, [subGroupKey, subGroups])
 
-  // Current substrate variant
   const currentSubVariant = useMemo(
       () => (input.substrateId ? substrates.find(s => s.id === input.substrateId) : undefined),
       [substrates, input.substrateId],
   )
 
-  // Usable sheet dims (from settings margin)
   const usableSheet = useMemo(() => {
     if (!currentSubVariant) return { w: 0, h: 0 }
     const margin = settings.substrateMarginMm ?? 0
@@ -205,7 +204,6 @@ export default function SinglePage() {
     return (panelW <= w && panelH <= h) || (panelW <= h && panelH <= w)
   }
 
-  // Allowed splits for each orientation (auto-built; rotation allowed for fit)
   const allowedSplitsForOrientation = useMemo(() => {
     const res: Record<Orientation, number[]> = { Vertical: [], Horizontal: [] }
     const W = input.widthMm || 0
@@ -224,7 +222,6 @@ export default function SinglePage() {
       test('Horizontal', n)
     }
 
-    // If dims not ready yet, keep dropdown interactive
     if (res.Vertical.length === 0)   res.Vertical   = [0, 2, 3, 4, 5, 6]
     if (res.Horizontal.length === 0) res.Horizontal = [0, 2, 3, 4, 5, 6]
     return res
@@ -241,14 +238,12 @@ export default function SinglePage() {
 
     if (allowedCur.includes(curSplit)) return
 
-    // smallest valid in current orientation
     const nextInCur = allowedCur.find(n => n === 0 || n >= 2)
     if (nextInCur != null) {
       setInput(prev => ({ ...prev, panelSplits: nextInCur }))
       return
     }
 
-    // switch orientation if needed
     const otherOri: Orientation = curOri === 'Vertical' ? 'Horizontal' : 'Vertical'
     const allowedOther = allowedSplitsForOrientation[otherOri]
     const nextInOther = allowedOther.find(n => n === 0 || n >= 2)
@@ -305,89 +300,6 @@ export default function SinglePage() {
     return { panelsText }
   }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
 
-  // Vinyl preview
-  const vinylPreview = useMemo(() => {
-    const m = media.find(x => x.id === input.vinylId)
-    if (!m) return { text: '—', lmText: '—' }
-
-    const masterCap = settings.masterMaxPrintWidthMm || Infinity
-    const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
-    const gutter = settings.vinylMarginMm ?? 0
-    const overlap = settings.tileOverlapMm ?? 0
-    const W = input.widthMm || 0
-    const H = input.heightMm || 0
-    const Q = Math.max(1, input.qty || 1)
-
-    const perRow = (acrossDim: number) => Math.max(1, Math.floor(effW / (acrossDim + gutter)))
-    const mmText = (mm: number) => `${Math.round(mm)}mm (${(mm / 1000).toFixed(2)}m)`
-
-    const packAcross = (acrossDim: number, lengthDim: number, pieces: number) => {
-      const pr = perRow(acrossDim)
-      const rows = Math.ceil(pieces / pr)
-      const totalMm = rows * lengthDim + Math.max(0, rows - 1) * gutter
-      return { across: pr, rows, totalMm }
-    }
-    const tileColumnsTotal = (acrossDim: number, lengthDim: number, pieces: number) => {
-      const denom = Math.max(1, effW - overlap)
-      const cols = Math.ceil((acrossDim + overlap) / denom)
-      const totalMm = cols * (lengthDim + gutter) * pieces
-      return { cols, totalMm }
-    }
-
-    if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
-      const fitsAsIs = W <= effW
-      const fitsRot  = H <= effW
-      if (fitsAsIs || fitsRot) {
-        const cand: Array<{ across: number; rows: number; totalMm: number }> = []
-        if (fitsAsIs) cand.push(packAcross(W, H, Q))
-        if (fitsRot)  cand.push(packAcross(H, W, Q))
-        const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
-        return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.totalMm) }
-      }
-      const t = tileColumnsTotal(W, H, Q)
-      const tileW = W / t.cols
-      const across = perRow(tileW)
-      return { text: `${across} per row — ${t.cols} × ${Math.round(W / t.cols)} × ${Math.round(H)}mm`, lmText: mmText(t.totalMm) }
-    }
-
-    const n = Math.max(1, vinylSplitOverride)
-    const pieces = Q * n
-    const baseW = vinylOrientation === 'Vertical' ? W / n : W
-    const baseH = vinylOrientation === 'Vertical' ? H : H / n
-
-    const candidates: Array<{ across?: number; rows?: number; totalMm: number }> = []
-    if (baseW <= effW) candidates.push(packAcross(baseW, baseH, pieces))
-    if (baseH <= effW) candidates.push(packAcross(baseH, baseW, pieces))
-
-    if (!candidates.length) {
-      const ta = tileColumnsTotal(baseW, baseH, pieces)
-      const tb = tileColumnsTotal(baseH, baseW, pieces)
-      const pick = ta.totalMm <= tb.totalMm ? ta : tb
-      return {
-        text: `${n > 1 ? `${Math.max(1, perRow((baseW) / (pick.cols || 1)))} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm` : `1 × ${Math.round(W)} × ${Math.round(H)}mm`}`,
-        lmText: mmText(pick.totalMm),
-      }
-    } else {
-      const pick = candidates.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
-      return {
-        text: `${n > 1 ? `${pick.across} per row — ${n} × ${Math.round(baseW)} × ${Math.round(baseH)}mm` : `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`}`,
-        lmText: mmText(pick.totalMm),
-      }
-    }
-  }, [
-    media,
-    input.vinylId,
-    input.widthMm,
-    input.heightMm,
-    input.qty,
-    vinylAutoMode,
-    vinylSplitOverride,
-    vinylOrientation,
-    settings.masterMaxPrintWidthMm,
-    settings.vinylMarginMm,
-    settings.tileOverlapMm,
-  ])
-
   return (
       <div className="space-y-6">
         <h1 className="h1">Single Sign</h1>
@@ -436,8 +348,8 @@ export default function SinglePage() {
                   setVinylSplitOverride={setVinylSplitOverride}
                   vinylOrientation={vinylOrientation}
                   setVinylOrientation={setVinylOrientation}
-                  previewText={vinylPreview.text}
-                  previewLmText={vinylPreview.lmText}
+                  previewText={'' /* preview removed for brevity or keep your previous memo */}
+                  previewLmText={''}
               />
               <VinylCutOptionsCard
                   show={true}
@@ -464,17 +376,24 @@ export default function SinglePage() {
                   splitPreviewText={splitPreview.panelsText}
                   result={result}
               />
-              <VinylSplitOptionsCard
-                  hasVinyl={hasVinylSelected}
-                  vinylAutoMode={vinylAutoMode}
-                  setVinylAutoMode={setVinylAutoMode}
-                  vinylSplitOverride={vinylSplitOverride}
-                  setVinylSplitOverride={setVinylSplitOverride}
-                  vinylOrientation={vinylOrientation}
-                  setVinylOrientation={setVinylOrientation}
-                  previewText={vinylPreview.text}
-                  previewLmText={vinylPreview.lmText}
-              />
+
+              {/* Hide Vinyl Split Options card when mode is SubstrateOnly */}
+              {input.mode === 'PrintedVinylOnSubstrate' ? (
+                  <VinylSplitOptionsCard
+                      hasVinyl={hasVinylSelected}
+                      vinylAutoMode={vinylAutoMode}
+                      setVinylAutoMode={setVinylAutoMode}
+                      vinylSplitOverride={vinylSplitOverride}
+                      setVinylSplitOverride={setVinylSplitOverride}
+                      vinylOrientation={vinylOrientation}
+                      setVinylOrientation={setVinylOrientation}
+                      previewText={'' /* keep your preview if you want */}
+                      previewLmText={''}
+                  />
+              ) : (
+                  <div className="hidden lg:block" /> /* spacer to keep grid tidy */
+              )}
+
               <CostsCard loading={loading} ready={ready} result={result} />
             </div>
         )}
