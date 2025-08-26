@@ -1,9 +1,18 @@
 // app/api/settings/costs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 
-const OUT_PATH = path.join(process.cwd(), 'public', 'settings', 'costs.json')
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic' // don't cache this route
+// export const revalidate = 0 // (either dynamic or revalidate=0 is fine)
+
+// Where we can write at runtime
+const RUNTIME_DIR = '/tmp/settings'
+const RUNTIME_FILE = path.join(RUNTIME_DIR, 'costs.json')
+
+// Bundled, read-only fallback (works both locally and in prod)
+const BUNDLED_FILE = path.join(process.cwd(), 'public', 'settings', 'costs.json')
 
 function sanitizeKey(k: unknown): string {
     return String(k ?? '').trim().replace(/^\uFEFF/, '') // trim + strip BOM
@@ -12,8 +21,6 @@ function sanitizeKey(k: unknown): string {
 function parseCsvKV(text: string): Record<string, unknown> {
     const out: Record<string, unknown> = {}
     const lines = text.split(/\r?\n/)
-
-    // detect simple header like "Key,Value"
     const firstLine = lines[0]?.trim()
     const hasHeader = firstLine && /key|name/i.test(firstLine) && /value/i.test(firstLine)
 
@@ -24,12 +31,29 @@ function parseCsvKV(text: string): Record<string, unknown> {
         const m = raw.match(/^\s*"?([^",]+)"?\s*,\s*"?(.+?)"?\s*$/)
         if (!m) continue
         const key = sanitizeKey(m[1])
-        if (!key) continue // <-- skip empty keys
+        if (!key) continue
         const valStr = m[2].trim()
         const n = Number(valStr)
         out[key] = Number.isFinite(n) ? n : valStr
     }
     return out
+}
+
+export async function GET() {
+    // 1) Prefer runtime override stored in /tmp
+    try {
+        const buf = await fs.readFile(RUNTIME_FILE, 'utf8')
+        return NextResponse.json(JSON.parse(buf))
+    } catch {}
+
+    // 2) Fall back to bundled file under /public
+    try {
+        const buf = await fs.readFile(BUNDLED_FILE, 'utf8')
+        return NextResponse.json(JSON.parse(buf))
+    } catch {
+        // 3) Nothing available yet
+        return NextResponse.json({}, { status: 200 })
+    }
 }
 
 export async function POST(req: NextRequest) {
@@ -41,7 +65,6 @@ export async function POST(req: NextRequest) {
         if (ctype.includes('application/json')) {
             const parsed = JSON.parse(body)
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                // sanitize keys
                 for (const [k, v] of Object.entries(parsed)) {
                     const kk = sanitizeKey(k)
                     if (!kk) continue
@@ -51,27 +74,16 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400 })
             }
         } else {
-            // CSV
+            // treat as CSV "Key,Value"
             obj = parseCsvKV(body)
         }
 
-        // ensure folder
-        await fs.mkdir(path.dirname(OUT_PATH), { recursive: true })
-        await fs.writeFile(OUT_PATH, JSON.stringify(obj, null, 2), 'utf8')
+        // Write to /tmp (writable in serverless)
+        await fs.mkdir(RUNTIME_DIR, { recursive: true })
+        await fs.writeFile(RUNTIME_FILE, JSON.stringify(obj, null, 2), 'utf8')
 
         return NextResponse.json({ ok: true, count: Object.keys(obj).length })
     } catch (e: any) {
         return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
-    }
-}
-
-export async function GET() {
-    try {
-        const buf = await fs.readFile(OUT_PATH, 'utf8')
-        const json = JSON.parse(buf)
-        return NextResponse.json(json)
-    } catch {
-        // not uploaded yet
-        return NextResponse.json({}, { status: 200 })
     }
 }

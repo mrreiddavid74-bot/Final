@@ -6,13 +6,11 @@ import { priceSingle } from '@/lib/pricing'
 import { normalizeSettings } from '@/lib/settings-normalize'
 import type { SingleSignInput, PriceBreakdown, Settings } from '@/lib/types'
 
-// ===== Derive unions from SingleSignInput so we don't rely on extra exports =====
-type ModeLiteral   = SingleSignInput['mode']
-type Orientation   = NonNullable<SingleSignInput['vinylSplitOrientation']>
-type Finishing     = NonNullable<SingleSignInput['finishing']>
-type Complexity    = NonNullable<SingleSignInput['complexity']>
+// --- Derive unions from SingleSignInput so we don't rely on extra exports ---
+type ModeLiteral = SingleSignInput['mode']
+type Orientation = NonNullable<SingleSignInput['vinylSplitOrientation']>
 
-// ===== Minimal local shapes for API data (match your lib/types.ts) =====
+// --- Minimal local shapes for API data (matches lib/types.ts) ---
 type VinylMedia = {
   id: string
   name: string
@@ -42,8 +40,6 @@ import VinylSplitOptionsCard from '@/components/VinylSplitOptionsCard'
 import VinylCutOptionsCard from '@/components/VinylCutOptionsCard'
 import CostsCard from '@/components/CostsCard'
 
-// ---------------------------------------------------------------------------
-
 const MODES: { id: ModeLiteral; label: string }[] = [
   { id: 'SolidColourCutVinyl',     label: 'Solid Colour Cut Vinyl Only' },
   { id: 'PrintAndCutVinyl',        label: 'Print & Cut Vinyl' },
@@ -56,7 +52,6 @@ const baseName = (name?: string) => (name ?? '').replace(SIZE_SUFFIX_RE, '').tri
 const nameKey  = (name?: string) => baseName(name).toLowerCase()
 const sizeKey  = (w?: number, h?: number) => `${w ?? 0}x${h ?? 0}`
 const fmtSize  = (w?: number, h?: number) => `${w ?? 0} x ${h ?? 0}mm`
-const MAX_SPLITS = 6
 
 export default function SinglePage() {
   const [media, setMedia] = useState<VinylMedia[]>([])
@@ -100,10 +95,10 @@ export default function SinglePage() {
   const [vinylSplitOverride, setVinylSplitOverride] = useState<number>(0)
   const [vinylOrientation, setVinylOrientation] = useState<Orientation>('Vertical')
 
-  // ✅ Settings merged: uploaded costs override defaults; defaults are fallback
+  // settings = uploaded-first, defaults only as fallback
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
 
-  // Load materials + costs (uploaded)
+  // Load materials + uploaded costs
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -116,7 +111,6 @@ export default function SinglePage() {
         if (cancelled) return
         setMedia(Array.isArray(m) ? m : [])
         setSubstrates(Array.isArray(s) ? s : [])
-        // Merge uploaded costs into settings; defaults fill any gaps
         setSettings(normalizeSettings({ ...DEFAULT_SETTINGS, costs: c } as any))
       } finally {
         if (!cancelled) setLoading(false)
@@ -135,7 +129,7 @@ export default function SinglePage() {
     )
   }, [media])
 
-  // Build substrate groups
+  // Build substrate groups (collapse variants differing only by size)
   type SubGroup = { key: string; displayName: string; variants: Substrate[] }
   const subGroups: SubGroup[] = useMemo(() => {
     const map = new Map<string, Substrate[]>()
@@ -188,7 +182,6 @@ export default function SinglePage() {
     })
   }, [subGroups])
 
-  // Convenience flags
   const isSubstrateMode  = input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly'
   const isPrintedProduct = input.mode === 'PrintAndCutVinyl' || input.mode === 'PrintedVinylOnSubstrate'
 
@@ -210,14 +203,14 @@ export default function SinglePage() {
           },
           media,
           substrates,
-          settings, // ← uploaded-first, defaults fallback
+          settings, // uploaded-first, defaults fallback
       )
     } catch (e: any) {
       return { error: e?.message ?? 'Error' }
     }
   }, [ready, input, media, substrates, settings, vinylAutoMode, vinylSplitOverride, vinylOrientation])
 
-  // Vinyl preview: use uploaded margins/overlap/master width too
+  // Vinyl preview: use uploaded margins/overlap/master width
   const vinylPreview = useMemo(() => {
     const m = media.find(x => x.id === input.vinylId)
     if (!m) return { text: '—', lmText: '—' }
@@ -317,11 +310,7 @@ export default function SinglePage() {
               isPrintedProduct={isPrintedProduct}
               doubleSided={!!input.doubleSided}
               onDoubleSidedChange={(v) => setInput({ ...input, doubleSided: v })}
-
-              subGroups={(() => {
-                // expose groups to the card
-                return subGroups
-              })()}
+              subGroups={subGroups}
               subGroupKey={subGroupKey}
               setSubGroupKey={setSubGroupKey}
               substrateId={input.substrateId}
@@ -346,7 +335,7 @@ export default function SinglePage() {
                     previewLmText={vinylPreview.lmText}
                 />
                 <VinylCutOptionsCard
-                    show={true /* your existing condition */}
+                    show={true}
                     plotterCut={input.plotterCut ?? 'None'}
                     backedWithWhite={!!input.backedWithWhite}
                     cuttingStyle={input.cuttingStyle ?? 'Standard'}
