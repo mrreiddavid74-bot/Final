@@ -12,25 +12,35 @@ export const DEFAULT_SETTINGS: Settings = {
   tileOverlapMm: 10,
   vinylWasteLmPerJob: 1,
 
-  // Costs (base fallbacks; overridden by uploaded costs.json)
+  // Core costs
   setupFee: 5.0,
   cutPerSign: 0.25,
-  appTapePerSqm: 2.0,       // alias supported as applicationTapePerSqm
-  inkElecPerSqm: 4.0,       // alias supported as inkCostPerSqm
+
+  // Ink / electricity (sqm-based, normalized)
+  inkElecPerSqm: 4.0,
+  inkCostPerSqm: 0, // alias; normalizer can read either
+
+  // Sell multiplier / profit
   profitMultiplier: 1.8,
 
-  // Optional finishing uplifts (percentage multipliers on base)
-  // These keys should match your Finishing union type.
+  // Finishing (laminate) uplifts — keys must match Finishing union
   finishingUplifts: {
-    IndividuallyCut: 0.10,
-    CutIntoSheets: 0.05,
-    KissCutOnRoll: 0.00,
-    None: 0.00,
+    None: 0.0,
+    Gloss: 0.05,
+    Matt: 0.05,
+    AntiGraffiti: 0.15,
   },
 
-  // ✅ VINYL CUT OPTIONS (plotter) — defaults (CSV/JSON upload will override)
+  // Application tape / white backing — linear-meter pricing
+  applicationTapePerLm: 0,
+  whiteBackingPerLm: 0,
+
+  // (Optional compatibility if uploads use sqm)
+  appTapePerSqm: 0,
+  applicationTapePerSqm: 0,
+
+  // Plotter cut & style uplifts (separate enums from Finishing)
   plotterPerimeterPerM: 0,
-  // Keys must match PlotterCut: 'None' | 'KissOnRoll' | 'KissOnSheets' | 'CutIndividually' | 'CutAndWeeded'
   plotterCutPerPiece: {
     None: 0,
     KissOnRoll: 0,
@@ -38,13 +48,12 @@ export const DEFAULT_SETTINGS: Settings = {
     CutIndividually: 0,
     CutAndWeeded: 0,
   },
-  // Cutting style uplift multipliers
   cuttingStyleUplifts: { Standard: 0, Intricate: 0 },
 
-  // White backing rate (your normalize step can map "White Backed Vinyl lm" to a per-lm or per-sqm field as needed)
-  whiteBackingPerSqm: 0,
+  // Hem/Eyelets per piece (qty-based)
+  hemEyeletsPerPiece: 0,
 
-  // Delivery (legacy flat-form; normalize() also supports new structured delivery)
+  // Delivery (flat form)
   deliveryBase: 5,
   deliveryBands: [
     { maxSumCm: 100, surcharge: 0 },
@@ -53,7 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
     { maxSumCm: 400, surcharge: 8 },
   ],
 
-  // VAT (if used elsewhere)
+  // VAT
   vatRatePct: 20,
 }
 

@@ -1,17 +1,24 @@
 // lib/types.ts
 
+// -----------------------------
+// Core enums / unions
+// -----------------------------
+
 export type Mode =
     | 'SolidColourCutVinyl'
     | 'PrintAndCutVinyl'
     | 'PrintedVinylOnSubstrate'
     | 'SubstrateOnly'
 
-export type Finishing = 'KissCutOnRoll' | 'CutIntoSheets' | 'IndividuallyCut' | 'None'
-export type Complexity = 'Basic' | 'Standard' | 'Complex'
 export type Orientation = 'Vertical' | 'Horizontal'
 
+// Laminate/finish options (used by finishingUplifts)
+export type Finishing = 'None' | 'Gloss' | 'Matt' | 'AntiGraffiti'
 
-// lib/types.ts
+// Optional complexity (used in some solid-colour pricing rules)
+export type Complexity = 'Standard' | 'Simple' | 'Complex'
+
+// Plotter cut options (used by Vinyl Cut Options card)
 export type PlotterCut =
     | 'None'
     | 'KissOnRoll'
@@ -19,72 +26,20 @@ export type PlotterCut =
     | 'CutIndividually'
     | 'CutAndWeeded'
 
-
+// Additional cut difficulty uplift (percentage multipliers)
 export type CuttingStyle = 'Standard' | 'Intricate'
 
-export type Settings = {
-  // Master machine limits (global caps)
-  masterMaxPrintWidthMm: number
-  masterMaxCutWidthMm: number
-
-  // Global margins & overlaps
-  vinylMarginMm: number
-  substrateMarginMm: number
-  tileOverlapMm: number
-  vinylWasteLmPerJob: number // metres per printed job
-
-  // Costs (preferred names)
-  setupFee: number
-  cutPerSign: number
-  appTapePerSqm?: number            // alias of applicationTapePerSqm
-  inkElecPerSqm?: number            // alias of inkCostPerSqm
-  profitMultiplier?: number
-
-  // Legacy/synonym fields (kept optional for compatibility)
-  applicationTapePerSqm?: number    // alias for appTapePerSqm
-  inkCostPerSqm?: number            // alias for inkElecPerSqm
-
-  // Optional finishing uplifts
-  finishingUplifts?: Partial<Record<Finishing, number>>
-
-  // ✅ NEW: per-sticker complexity surcharges
-  complexityPerSticker?: Partial<Record<Complexity, number>>
-
-  // ✅ NEW: Vinyl Cut Options pricing (all optional; defaults to 0 if missing)
-  plotterPerimeterPerM?: number                         // e.g. £/m cut path
-  plotterCutPerPiece?: Partial<Record<PlotterCut, number>> // fixed £/piece for selected option
-  cuttingStyleUplifts?: Partial<Record<CuttingStyle, number>> // e.g. { Intricate: 0.2 }
-  whiteBackingPerSqm?: number                           // e.g. 4.0 (£/m²)
-
-  // Delivery (flat / legacy)
-  deliveryBase?: number
-  deliveryBands?: { maxSumCm: number; surcharge: number }[]
-
-  // ✅ NEW: nested delivery (what normalizeSettings returns)
-  delivery?: {
-    baseFee: number
-    bands: Array<{
-      maxGirthCm?: number
-      maxSumCm?: number
-      price?: number
-      surcharge?: number
-      name?: string
-    }>
-  }
-
-  // VAT (optional)
-  vatRatePct?: number
-}
+// -----------------------------
+// Inventory models
+// -----------------------------
 
 export type VinylMedia = {
   id: string
   name: string
+  category?: string // e.g. "Printed", "Solid"
   rollWidthMm: number
-  rollPrintableWidthMm: number // usable/print width
+  rollPrintableWidthMm: number
   pricePerLm: number
-  // optional categorisation
-  category?: 'Solid' | 'Printed' | string
-  // Optional per-media limits
   maxPrintWidthMm?: number
   maxCutWidthMm?: number
 }
@@ -98,76 +53,150 @@ export type Substrate = {
   thicknessMm?: number
 }
 
+// -----------------------------
+// Settings (normalized)
+// -----------------------------
+
+export type Settings = {
+  // Machine/global limits
+  masterMaxPrintWidthMm?: number
+  masterMaxCutWidthMm?: number
+
+  // Margins & overlaps
+  vinylMarginMm?: number
+  substrateMarginMm?: number
+  tileOverlapMm?: number
+  vinylWasteLmPerJob?: number
+
+  // Core costs
+  setupFee?: number
+  cutPerSign?: number
+  inkElecPerSqm?: number         // normalized from "Ink Cost sqm"
+  inkCostPerSqm?: number         // alias accepted by normalizer
+  profitMultiplier?: number      // normalized from "Sell Multiplier"
+
+  // Finishing (laminate) uplifts; keys match Finishing
+  finishingUplifts?: Partial<Record<Finishing, number>>
+
+  // Application tape / white backing — linear-meter pricing
+  applicationTapePerLm?: number  // from "Application Tape Cost per lm"
+  whiteBackingPerLm?: number     // from "White Backed Vinyl lm"
+
+  // (Optional compatibility if uploads use sqm)
+  appTapePerSqm?: number
+  applicationTapePerSqm?: number
+
+  // Plotter cut & style uplifts
+  plotterPerimeterPerM?: number
+  plotterCutPerPiece?: Partial<Record<PlotterCut, number>>
+  cuttingStyleUplifts?: Partial<Record<CuttingStyle, number>>
+
+  // Hem/Eyelets per piece (qty-based)
+  hemEyeletsPerPiece?: number    // from "Hem or Eyelets" / "Hem/Eyelets"
+
+  // Delivery (flat form)
+  deliveryBase?: number
+  deliveryBands?: Array<{
+    maxSumCm?: number
+    maxGirthCm?: number
+    surcharge?: number
+    name?: string
+  }>
+
+  // Optional nested delivery (supported by normalizer)
+  delivery?: {
+    baseFee?: number
+    bands?: Array<{
+      maxSumCm?: number
+      maxGirthCm?: number
+      price?: number
+      surcharge?: number
+      name?: string
+    }>
+  }
+
+  // VAT etc.
+  vatRatePct?: number
+}
+
+// -----------------------------
+// Pricing input from UI
+// -----------------------------
+
 export type SingleSignInput = {
   mode: Mode
   widthMm: number
   heightMm: number
   qty: number
+
+  // Material selections
   vinylId?: string
   substrateId?: string
-  doubleSided?: boolean
+
+  // Printing / finishing toggles
+  doubleSided?: boolean           // doubles vinyl lm for printed modes
   finishing?: Finishing
   complexity?: Complexity
-  applicationTape?: boolean
 
-  // Substrate/vinyl tiling on sheet
-  panelSplits?: number // 0..6
-  panelOrientation?: Orientation
+  // Substrate/visual splits (also reused to display "Vinyl splits" text)
+  panelSplits?: number            // 0 = none (one piece)
+  panelOrientation?: Orientation  // which dimension to split along
 
-  // Vinyl Split Options (roll tiling)
+  // Vinyl tiling options (Split Options card)
   vinylAuto?: boolean
-  vinylSplitOverride?: number
+  vinylSplitOverride?: number     // 0 or 1 = none; ≥2 = number of parts
   vinylSplitOrientation?: Orientation
 
   // Vinyl Cut Options
   plotterCut?: PlotterCut
-  backedWithWhite?: boolean
+  backedWithWhite?: boolean       // adds whiteBackingPerLm × lm (printed modes)
   cuttingStyle?: CuttingStyle
-
-  settings?: Settings
+  applicationTape?: boolean       // adds applicationTapePerLm × lm
+  hemEyelets?: boolean            // adds hemEyeletsPerPiece × qty (Print & Cut only)
 }
 
-export type VinylCostItem = {
-  media: string
-  lm: number
-  pricePerLm: number
-  cost: number
-}
-
-export type SubstrateCostItem = {
-  material: string
-  sheet: string // e.g., "2440×1220"
-  neededSheets: number // fractional
-  chargedSheets: number // integer
-  pricePerSheet: number
-  cost: number
-}
+// -----------------------------
+// Pricing result
+// -----------------------------
 
 export type PriceBreakdown = {
   // Money
   materials: number
   ink: number
   setup: number
-  finishingUplift: number
   cutting: number
+  finishingUplift: number
   preDelivery: number
   delivery: number
   total: number
 
-  // Stats
-  vinylLm?: number
-  vinylLmWithWaste?: number
-  tiles?: number
+  // Stats / utilization
+  vinylLm?: number                // linear meters (before waste)
+  vinylLmWithWaste?: number       // lm including job waste
   sheetFraction?: 0.25 | 0.5 | 0.75 | 1
   sheetsUsed?: number
   usagePct?: number
   wastePct?: number
   deliveryBand?: string
-  notes?: string[]
 
-  // Detailed cost items (optional)
+  // Itemized costs (for UI display)
   costs?: {
-    vinyl: VinylCostItem[]
-    substrate: SubstrateCostItem[]
+    vinyl?: Array<{
+      media: string
+      lm: number
+      pricePerLm: number
+      cost: number
+    }>
+    substrate?: Array<{
+      material: string
+      sheet: string
+      neededSheets: number
+      chargedSheets: number
+      pricePerSheet: number
+      cost: number
+    }>
   }
+
+  // Free-form notes for audit/debug
+  notes?: string[]
 }

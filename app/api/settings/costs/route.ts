@@ -1,96 +1,77 @@
+// app/api/settings/costs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { promises as fs } from 'fs'
 import path from 'path'
-import fs from 'fs/promises'
 
-type CostMap = Record<string, number | string>
+const OUT_PATH = path.join(process.cwd(), 'public', 'settings', 'costs.json')
 
-const DATA_DIR = path.join(process.cwd(), 'public', 'settings')
-const COSTS_PATH = path.join(DATA_DIR, 'costs.json')
-
-// --- utils ---
-async function ensureDir(p: string) {
-    try {
-        await fs.mkdir(p, { recursive: true })
-    } catch {
-        /* ignore */
-    }
+function sanitizeKey(k: unknown): string {
+    return String(k ?? '').trim().replace(/^\uFEFF/, '') // trim + strip BOM
 }
 
-async function loadCostsFromDisk(): Promise<CostMap> {
-    try {
-        const buf = await fs.readFile(COSTS_PATH, 'utf-8')
-        const json = JSON.parse(buf)
-        return (json && typeof json === 'object') ? (json as CostMap) : {}
-    } catch {
-        return {}
-    }
-}
+function parseCsvKV(text: string): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    const lines = text.split(/\r?\n/)
 
-async function saveCostsToDisk(costs: CostMap) {
-    await ensureDir(DATA_DIR)
-    await fs.writeFile(COSTS_PATH, JSON.stringify(costs, null, 2), 'utf-8')
-}
+    // detect simple header like "Key,Value"
+    const firstLine = lines[0]?.trim()
+    const hasHeader = firstLine && /key|name/i.test(firstLine) && /value/i.test(firstLine)
 
-function toNumberIfPossible(v: string): number | string {
-    const n = parseFloat(v)
-    return Number.isFinite(n) ? n : v
-}
-
-// very small CSV reader: expects 2 columns: key, value (header optional)
-function parseCsv(text: string): CostMap {
-    const out: CostMap = {}
-    const lines = text.split(/\r?\n/).filter(l => l.trim() !== '')
-    if (lines.length === 0) return out
-
-    // Allow an optional header row
-    const start = /^"?key"?\s*,\s*"?value"?/i.test(lines[0].trim()) ? 1 : 0
-
-    for (let i = start; i < lines.length; i++) {
+    for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
         const raw = lines[i]
-        // naive split – OK for simple 2-column file; if you later need quoted commas, swap in a real CSV parser
-        const idx = raw.indexOf(',')
-        if (idx === -1) continue
-        const k = raw.slice(0, idx).trim().replace(/^"|"$/g, '')
-        const v = raw.slice(idx + 1).trim().replace(/^"|"$/g, '')
-        if (!k) continue
-        out[k] = toNumberIfPossible(v)
+        if (!raw || !raw.trim()) continue
+        // split on first comma only (allow commas in value)
+        const m = raw.match(/^\s*"?([^",]+)"?\s*,\s*"?(.+?)"?\s*$/)
+        if (!m) continue
+        const key = sanitizeKey(m[1])
+        if (!key) continue // <-- skip empty keys
+        const valStr = m[2].trim()
+        const n = Number(valStr)
+        out[key] = Number.isFinite(n) ? n : valStr
     }
     return out
 }
 
-export async function GET() {
-    const current = await loadCostsFromDisk()
-    return NextResponse.json(current)
-}
-
 export async function POST(req: NextRequest) {
-    const ctype = req.headers.get('content-type') || ''
     try {
-        let costs: CostMap = {}
+        const ctype = req.headers.get('content-type') || ''
+        const body = await req.text()
+        let obj: Record<string, unknown> = {}
 
         if (ctype.includes('application/json')) {
-            // Accept either { "K": V, ... } or [{ key,name,id, value }, ...]
-            const body = await req.json()
-            if (Array.isArray(body)) {
-                const out: CostMap = {}
-                for (const row of body) {
-                    const k = (row.key ?? row.name ?? row.id ?? '').toString().trim()
-                    if (!k) continue
-                    const val = row.value ?? row.val ?? row.amount
-                    out[k] = typeof val === 'string' ? toNumberIfPossible(val.trim()) : val
+            const parsed = JSON.parse(body)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                // sanitize keys
+                for (const [k, v] of Object.entries(parsed)) {
+                    const kk = sanitizeKey(k)
+                    if (!kk) continue
+                    obj[kk] = v
                 }
-                costs = out
-            } else if (body && typeof body === 'object') {
-                costs = body as CostMap
+            } else {
+                return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400 })
             }
         } else {
-            const text = await req.text()
-            costs = parseCsv(text)
+            // CSV
+            obj = parseCsvKV(body)
         }
 
-        await saveCostsToDisk(costs)
-        return NextResponse.json({ ok: true, count: Object.keys(costs).length })
+        // ensure folder
+        await fs.mkdir(path.dirname(OUT_PATH), { recursive: true })
+        await fs.writeFile(OUT_PATH, JSON.stringify(obj, null, 2), 'utf8')
+
+        return NextResponse.json({ ok: true, count: Object.keys(obj).length })
     } catch (e: any) {
-        return NextResponse.json({ ok: false, error: e?.message || 'Upload failed' }, { status: 400 })
+        return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
+    }
+}
+
+export async function GET() {
+    try {
+        const buf = await fs.readFile(OUT_PATH, 'utf8')
+        const json = JSON.parse(buf)
+        return NextResponse.json(json)
+    } catch {
+        // not uploaded yet
+        return NextResponse.json({}, { status: 200 })
     }
 }

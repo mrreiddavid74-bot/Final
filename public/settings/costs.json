@@ -19,5 +19,6 @@
   "Substrate Sign Margin mm": 0,
   "Vinyl Sign Margin mm": 5,
   "Application Tape Cost per lm": 1,
-  "White Backed Vinyl lm": 15
+  "White Backed Vinyl lm": 15,
+  "Hem or Eyelets": 5
 }
