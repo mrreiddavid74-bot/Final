@@ -107,20 +107,52 @@ function computeVinylLength(
     return { lm: pick.totalLm, note: `Auto tiled (${pick.columns} col) ${label} @ ${Math.round(effW)}mm` }
   }
 
-  // Custom override
-  const parts = Math.max(0, Math.min(6, input.vinylSplitOverride ?? 0)) || 1
-  const ori: Orientation = input.vinylSplitOrientation ?? 'Vertical'
-  const pieceW = ori === 'Vertical' ? W / parts : W
-  const pieceH = ori === 'Vertical' ? H : H / parts
-  const qtyPieces = qty * parts
+// --- CUSTOM override (try both orientations, pick the shorter) ---
+  const parts = Math.max(0, Math.min(6, input.vinylSplitOverride ?? 0)) || 1;
+  const ori: Orientation = input.vinylSplitOrientation ?? 'Vertical';
+  const baseW = ori === 'Vertical' ? W / parts : W;   // panel width if not rotated
+  const baseH = ori === 'Vertical' ? H : H / parts;   // panel length if not rotated
+  const pieces = qty * parts;
 
-  if (pieceW <= effW) {
-    const p = packAcrossWidthLm(pieceW, pieceH, effW, qtyPieces, gutter)
-    return { lm: p.totalLm, note: `Custom ${parts}× ${ori}, ${p.perRow}/row, ${p.rows} row(s) @ ${Math.round(effW)}mm` }
-  } else {
-    const t = tileColumnsLm(pieceW, pieceH, effW, qtyPieces, overlap, gutter)
-    return { lm: t.totalLm, note: `Custom ${parts}× ${ori}, tiled (${t.columns} col) @ ${Math.round(effW)}mm` }
+  type Cand = { across: number; rows: number; totalMm: number; rotated: boolean };
+  const candidates: Cand[] = [];
+
+  const tryIfFits = (acrossDim: number, lengthDim: number, rotated: boolean) => {
+    if (acrossDim <= effW) {
+      const perRow = Math.max(1, Math.floor(effW / (acrossDim + gutter)));
+      const rows = Math.ceil(pieces / perRow);
+      const totalMm = rows * lengthDim + Math.max(0, rows - 1) * gutter;
+      candidates.push({ across: perRow, rows, totalMm, rotated });
+    }
+  };
+
+// try as-is and rotated if they fit across the roll
+  tryIfFits(baseW, baseH, false);
+  tryIfFits(baseH, baseW, true);
+
+  if (candidates.length) {
+    const pick = candidates.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b));
+    return {
+      lm: pick.totalMm / 1000,
+      note: `Custom ${parts}× ${ori}${pick.rotated ? ' (rotated)' : ''}, ${pick.across}/row, ${pick.rows} row(s) @ ${Math.round(effW)}mm`,
+    };
   }
+
+// neither orientation fits across → tile columns; choose the cheaper orientation
+  const denom = Math.max(1, effW - overlap);
+  const colsA = Math.ceil((baseW + overlap) / denom);
+  const colsB = Math.ceil((baseH + overlap) / denom);
+  const useRot = colsB < colsA;
+  const acrossDim = useRot ? baseH : baseW;
+  const lengthDim = useRot ? baseW : baseH;
+  const cols = Math.max(1, Math.min(6, useRot ? colsB : colsA));
+  const totalMm = cols * (lengthDim + gutter) * pieces;
+
+  return {
+    lm: totalMm / 1000,
+    note: `Custom ${parts}× ${ori}${useRot ? ' (rotated)' : ''}, tiled (${cols} col) @ ${Math.round(effW)}mm`,
+  };
+
 }
 
 /** Substrate charging by fraction (¼/½/¾/full). */
