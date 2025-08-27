@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vinylMarginMm: 5,
   substrateMarginMm: 5,
   tileOverlapMm: 10,
-  vinylWasteLmPerJob: 1,
+  vinylWasteLmPerJob: 0.5, // ▼ changed from 1.0 to 0.5 lm
 
   // Core costs
   setupFee: 5.0,
@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   applicationTapePerLm: 0,
   whiteBackingPerLm: 0,
 
-  // (Optional compatibility if uploads use sqm)
+  // (Optional compatibility fields if uploads use sqm)
   appTapePerSqm: 0,
   applicationTapePerSqm: 0,
 

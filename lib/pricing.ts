@@ -29,16 +29,15 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
 
 /** Pack when a rectangle fits across the roll width, including edge gutters. */
 function packAcrossWidth(
-    acrossMm: number,   // piece width across the roll
-    lengthMm: number,   // piece length down the roll
-    effW: number,       // effective roll width
-    pieces: number,     // total panels to print
-    margin: number,     // "Vinyl Sign Margin mm"
+    acrossMm: number,
+    lengthMm: number,
+    effW: number,
+    pieces: number,
+    margin: number,
 ) {
   const perRow = Math.max(1, Math.floor(effW / (acrossMm + margin)))
   const rows   = Math.ceil(pieces / perRow)
-  // Add margin between rows AND at top+bottom: (rows + 1) * margin
-  const totalMm = rows * lengthMm + (rows + 1) * margin
+  const totalMm = rows * lengthMm + (rows + 1) * margin // top & bottom gutters
   return { perRow, rows, totalMm, totalLm: totalMm / 1000 }
 }
 
@@ -53,18 +52,11 @@ function tileColumns(
 ) {
   const denom  = Math.max(1, effW - overlap)
   const cols   = Math.ceil((acrossMm + overlap) / denom)
-  // For each column we print `pieces` strips down the roll.
-  // Each column has: pieces * length + (pieces + 1) * margin (top+bottom + between pieces)
-  const totalMm = cols * (pieces * lengthMm + (pieces + 1) * margin)
+  const totalMm = cols * (pieces * lengthMm + (pieces + 1) * margin) // gutters top+bottom per column
   return { cols, totalMm, totalLm: totalMm / 1000 }
 }
 
-/**
- * Compute vinyl linear meters for printed modes using SAME logic as the UI:
- * - Auto: rotate to avoid tiling if possible; else tile with fewer columns.
- * - Custom: try both orientations; choose shorter. If neither fits, tile both and pick cheaper.
- * All paths include the edge gutters from the CSV "Vinyl Sign Margin mm".
- */
+/** Compute vinyl linear meters for printed modes; includes edge gutters & respects custom tiling. */
 function computeVinylLm(
     input: SingleSignInput, mediaItem: VinylMedia, s: Settings,
 ): { lmBase: number; note: string } {
@@ -77,7 +69,6 @@ function computeVinylLm(
 
   const auto = input.vinylAuto !== false
 
-  // ---------- AUTO ----------
   if (auto && (input.vinylSplitOverride ?? 0) === 0) {
     const cand: Array<{ perRow: number; rows: number; totalMm: number }> = []
     if (W <= effW) cand.push(packAcrossWidth(W, H, effW, qty, margin))
@@ -89,14 +80,13 @@ function computeVinylLm(
         note: `Auto (rotated if needed); ${pick.perRow}/row, ${pick.rows} row(s) @ ${Math.round(effW)}mm`,
       }
     }
-    // Neither fits → tile the cheaper orientation
     const v = tileColumns(W, H, effW, qty, overlap, margin)
     const h = tileColumns(H, W, effW, qty, overlap, margin)
     const pick = v.totalMm <= h.totalMm ? v : h
     return { lmBase: pick.totalLm, note: `Auto tiled (${pick.cols} col) @ ${Math.round(effW)}mm` }
   }
 
-  // ---------- CUSTOM ----------
+  // Custom override
   const parts = Math.max(1, input.vinylSplitOverride ?? 1)
   const ori: Orientation = input.vinylSplitOrientation ?? 'Vertical'
   const baseW = ori === 'Vertical' ? W / parts : W
@@ -106,12 +96,10 @@ function computeVinylLm(
   type Fit = { totalMm: number; totalLm: number; perRow: number; rows: number; rotated: boolean }
   const candidates: Fit[] = []
 
-  // Try as-is
   if (baseW <= effW) {
     const p = packAcrossWidth(baseW, baseH, effW, pieces, margin)
     candidates.push({ ...p, rotated: false })
   }
-  // Try rotated
   if (baseH <= effW) {
     const p = packAcrossWidth(baseH, baseW, effW, pieces, margin)
     candidates.push({ ...p, rotated: true })
@@ -125,7 +113,6 @@ function computeVinylLm(
     }
   }
 
-  // Neither orientation fits across → tile both ways; choose cheaper
   const ta = tileColumns(baseW, baseH, effW, pieces, overlap, margin)
   const tb = tileColumns(baseH, baseW, effW, pieces, overlap, margin)
   const useRot = tb.totalMm < ta.totalMm
@@ -188,7 +175,7 @@ export function priceSingle(
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
   const addVinylCost = (lmRaw: number, pricePerLm: number, printed: boolean) => {
-    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0
+    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0 // uses DEFAULT 0.5 unless overridden by CSV
     vinylLmRaw = lmRaw
     vinylLmWithWaste = lmRaw + waste
     materials += vinylLmWithWaste * pricePerLm
@@ -201,13 +188,11 @@ export function priceSingle(
     const margin = s.vinylMarginMm || 0
     const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + margin)))
     const rows = Math.ceil((input.qty || 1) / perRow)
-    // edge gutters at top & bottom
     const lm = (rows * ((input.heightMm || 0)) + (rows + 1) * margin) / 1000
     addVinylCost(lm, mediaItem.pricePerLm, false)
     vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
     notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
 
-    // Per-lm application tape (if enabled)
     if (input.applicationTape && s.applicationTapePerLm) {
       materials += lm * s.applicationTapePerLm
       notes.push(`Application tape: ${lm.toFixed(2)} lm × £${s.applicationTapePerLm.toFixed(2)}`)
@@ -252,7 +237,16 @@ export function priceSingle(
     const usableArea = Math.max(1, usableW * usableH)
     const signArea = (input.widthMm || 0) * (input.heightMm || 0)
     const neededSheetsRaw = (signArea * (input.qty || 1)) / usableArea
-    const chargedSheets = Math.ceil(neededSheetsRaw > 0 ? neededSheetsRaw : 0)
+
+    // ▼ New charging rule:
+    // ≤ 0.5 → charge 0.5 sheet
+    // > 0.5 and ≤ 1 → charge 1 full sheet
+    // > 1 → ceil to whole sheets
+    let chargedSheets: number
+    if (neededSheetsRaw <= 0.5) chargedSheets = 0.5
+    else if (neededSheetsRaw <= 1) chargedSheets = 1
+    else chargedSheets = Math.ceil(neededSheetsRaw)
+
     const sheetCost = substrateItem.pricePerSheet
     materials += sheetCost * chargedSheets
 
@@ -266,7 +260,7 @@ export function priceSingle(
     })
   }
 
-  // -------- CUT OPTIONS --------
+  // --- CUT OPTIONS ---
   if (input.plotterCut && input.plotterCut !== 'None') {
     const perimAdd = (s.plotterPerimeterPerM ?? 0) * perimeterM
     const perPiece = s.plotterCutPerPiece?.[input.plotterCut] ?? 0
@@ -288,7 +282,7 @@ export function priceSingle(
     notes.push(`Cut option: None — setup £0.00 + ${input.qty} × £${s.cutPerSign.toFixed(2)} = £${(s.cutPerSign * (input.qty || 1)).toFixed(2)}`)
   }
 
-  // -------- BUILD TOTALS --------
+  // --- TOTALS ---
   const profit = s.profitMultiplier ?? 1
   const preDelivery = (materials + ink) * profit + (setup + cutting + finishingUplift)
 
