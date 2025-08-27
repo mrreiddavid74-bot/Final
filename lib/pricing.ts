@@ -1,6 +1,12 @@
 // lib/pricing.ts
 import {
-  Settings, VinylMedia, Substrate, SingleSignInput, PriceBreakdown, Finishing, Orientation,
+  Settings,
+  VinylMedia,
+  Substrate,
+  SingleSignInput,
+  PriceBreakdown,
+  Finishing,
+  Orientation,
 } from './types'
 import { normalizeSettings } from './settings-normalize'
 
@@ -144,7 +150,10 @@ export function deliveryFromGirth(settings: Settings, wMm: number, hMm: number, 
 }
 
 export function priceSingle(
-    input: SingleSignInput, media: VinylMedia[], substrates: Substrate[], rawSettings: Settings,
+    input: SingleSignInput,
+    media: VinylMedia[],
+    substrates: Substrate[],
+    rawSettings: Settings,
 ): PriceBreakdown {
   const s = normalizeSettings(rawSettings as any)
   const notes: string[] = []
@@ -170,12 +179,14 @@ export function priceSingle(
 
   let vinylLmRaw = 0
   let vinylLmWithWaste = 0
+  let sheetsUsedPhys: number | undefined // ▼ expose packed full sheets
 
   const mediaItem = input.vinylId ? media.find(m => m.id === input.vinylId) : undefined
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
   const addVinylCost = (lmRaw: number, pricePerLm: number, printed: boolean) => {
-    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0 // uses DEFAULT 0.5 unless overridden by CSV
+    // DEFAULT waste is 0.5 lm (overridable via CSV)
+    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0
     vinylLmRaw = lmRaw
     vinylLmWithWaste = lmRaw + waste
     materials += vinylLmWithWaste * pricePerLm
@@ -229,35 +240,68 @@ export function priceSingle(
     if (_uplift) finishingUplift += _uplift * (materials + ink + cutting + setup)
   }
 
-  // --- SUBSTRATE ---
+  // --- SUBSTRATE (panel-based packing) ---
   if (input.mode === 'PrintedVinylOnSubstrate' || input.mode === 'SubstrateOnly') {
     if (!substrateItem) throw new Error('Select a substrate')
+
+    // Usable sheet (edge margin only)
     const usableW = Math.max(0, substrateItem.sizeW - 2 * (s.substrateMarginMm || 0))
     const usableH = Math.max(0, substrateItem.sizeH - 2 * (s.substrateMarginMm || 0))
-    const usableArea = Math.max(1, usableW * usableH)
-    const signArea = (input.widthMm || 0) * (input.heightMm || 0)
-    const neededSheetsRaw = (signArea * (input.qty || 1)) / usableArea
 
-    // ▼ New charging rule:
-    // ≤ 0.5 → charge 0.5 sheet
-    // > 0.5 and ≤ 1 → charge 1 full sheet
-    // > 1 → ceil to whole sheets
-    let chargedSheets: number
-    if (neededSheetsRaw <= 0.5) chargedSheets = 0.5
-    else if (neededSheetsRaw <= 1) chargedSheets = 1
-    else chargedSheets = Math.ceil(neededSheetsRaw)
+    // Panels from Substrate Splits
+    const qty = Math.max(1, input.qty || 1)
+    const parts = Math.max(1, (input.panelSplits ?? 0) || 1)
+    const ori: Orientation = input.panelOrientation ?? 'Vertical'
+    const panelW = ori === 'Vertical' ? (input.widthMm || 0) / parts : (input.widthMm || 0)
+    const panelH = ori === 'Vertical' ? (input.heightMm || 0)      : (input.heightMm || 0) / parts
+    const totalPanels = qty * parts
+
+    // How many panels fit per sheet (try both orientations)
+    const fitA = Math.floor(usableW / panelW) * Math.floor(usableH / panelH)
+    const fitB = Math.floor(usableW / panelH) * Math.floor(usableH / panelW)
+    const perSheetCapacity = Math.max(fitA, fitB, 1)
+
+    // Physical full sheets required to place all panels:
+    const fullSheetsNeeded = Math.ceil(totalPanels / perSheetCapacity)
+    sheetsUsedPhys = fullSheetsNeeded
+
+    // Charging rule for the last (partial) sheet:
+    // use ≤ 0.5 → charge 0.5; slightly over → charge 1
+    const fullWholeSheets = Math.floor(totalPanels / perSheetCapacity)
+    const remainderPanels = totalPanels % perSheetCapacity
+
+    const sheetArea = usableW * usableH
+    const panelArea = panelW * panelH
+    let chargedSheets = fullWholeSheets
+    if (remainderPanels > 0) {
+      const remainderArea = remainderPanels * panelArea
+      const ratio = sheetArea > 0 ? remainderArea / sheetArea : 1
+      chargedSheets += ratio <= 0.5 ? 0.5 : 1
+    }
 
     const sheetCost = substrateItem.pricePerSheet
     materials += sheetCost * chargedSheets
 
+    // (Optional) quick usage stat for notes
+    const usagePct =
+        sheetArea > 0
+            ? clamp((totalPanels * panelArea) / (fullSheetsNeeded * sheetArea) * 100, 0, 100)
+            : undefined
+
     substrateCostItems.push({
       material: substrateItem.name,
       sheet: `${substrateItem.sizeW}×${substrateItem.sizeH}`,
-      neededSheets: +neededSheetsRaw.toFixed(2),
+      neededSheets: +(totalPanels / perSheetCapacity).toFixed(2),
       chargedSheets,
       pricePerSheet: +sheetCost.toFixed(2),
       cost: +(chargedSheets * sheetCost).toFixed(2),
     })
+
+    notes.push(
+        `Substrate split: ${parts} × ${ori} → panel ${Math.round(panelW)}×${Math.round(panelH)}mm; ` +
+        `${perSheetCapacity} per sheet`
+    )
+    if (usagePct !== undefined) notes.push(`Sheet usage ≈ ${usagePct.toFixed(1)}%`)
   }
 
   // --- CUT OPTIONS ---
@@ -301,8 +345,12 @@ export function priceSingle(
     delivery: +delivery.toFixed(2),
     total: +total.toFixed(2),
 
+    // Vinyl stats
     vinylLm: vinylLmRaw ? +vinylLmRaw.toFixed(3) : undefined,
     vinylLmWithWaste: vinylLmWithWaste ? +vinylLmWithWaste.toFixed(3) : undefined,
+
+    // Substrate packing stat for UI
+    sheetsUsed: sheetsUsedPhys,
 
     costs: { vinyl: vinylCostItems, substrate: substrateCostItems },
     deliveryBand: band,
