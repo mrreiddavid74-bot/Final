@@ -27,39 +27,43 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
   }
 }
 
-/** Simple packer when a rectangle fits across the roll width. */
+/** Pack when a rectangle fits across the roll width, including edge gutters. */
 function packAcrossWidth(
-    acrossMm: number,     // piece width across the roll
-    lengthMm: number,     // piece length down the roll
-    effW: number,         // effective roll width
-    pieces: number,       // total panels to print
-    gutter: number,       // spacing between rows
+    acrossMm: number,   // piece width across the roll
+    lengthMm: number,   // piece length down the roll
+    effW: number,       // effective roll width
+    pieces: number,     // total panels to print
+    margin: number,     // "Vinyl Sign Margin mm"
 ) {
-  const perRow = Math.max(1, Math.floor(effW / (acrossMm + gutter)))
+  const perRow = Math.max(1, Math.floor(effW / (acrossMm + margin)))
   const rows   = Math.ceil(pieces / perRow)
-  const totalMm = rows * lengthMm + Math.max(0, rows - 1) * gutter
+  // Add margin between rows AND at top+bottom: (rows + 1) * margin
+  const totalMm = rows * lengthMm + (rows + 1) * margin
   return { perRow, rows, totalMm, totalLm: totalMm / 1000 }
 }
 
-/** Tile into columns when across dimension exceeds roll width. */
+/** Tile into columns when across-dimension exceeds roll width, with edge gutters per column. */
 function tileColumns(
     acrossMm: number,
     lengthMm: number,
     effW: number,
     pieces: number,
     overlap: number,
-    gutter: number,
+    margin: number,
 ) {
   const denom  = Math.max(1, effW - overlap)
   const cols   = Math.ceil((acrossMm + overlap) / denom)
-  const totalMm = cols * (lengthMm + gutter) * pieces
+  // For each column we print `pieces` strips down the roll.
+  // Each column has: pieces * length + (pieces + 1) * margin (top+bottom + between pieces)
+  const totalMm = cols * (pieces * lengthMm + (pieces + 1) * margin)
   return { cols, totalMm, totalLm: totalMm / 1000 }
 }
 
 /**
- * Compute vinyl linear meters for printed modes using the SAME logic as the UI:
- * - Auto: rotate to avoid tiling if possible; otherwise tile with fewer columns.
- * - Custom: try both orientations (as-is and rotated); pick the shorter. If neither fits, tile both and pick the cheaper.
+ * Compute vinyl linear meters for printed modes using SAME logic as the UI:
+ * - Auto: rotate to avoid tiling if possible; else tile with fewer columns.
+ * - Custom: try both orientations; choose shorter. If neither fits, tile both and pick cheaper.
+ * All paths include the edge gutters from the CSV "Vinyl Sign Margin mm".
  */
 function computeVinylLm(
     input: SingleSignInput, mediaItem: VinylMedia, s: Settings,
@@ -68,7 +72,7 @@ function computeVinylLm(
   const W = input.widthMm || 0
   const H = input.heightMm || 0
   const qty = Math.max(1, input.qty || 1)
-  const gutter = s.vinylMarginMm || 0
+  const margin = s.vinylMarginMm || 0
   const overlap = s.tileOverlapMm || 0
 
   const auto = input.vinylAuto !== false
@@ -76,8 +80,8 @@ function computeVinylLm(
   // ---------- AUTO ----------
   if (auto && (input.vinylSplitOverride ?? 0) === 0) {
     const cand: Array<{ perRow: number; rows: number; totalMm: number }> = []
-    if (W <= effW) cand.push(packAcrossWidth(W, H, effW, qty, gutter))
-    if (H <= effW) cand.push(packAcrossWidth(H, W, effW, qty, gutter))
+    if (W <= effW) cand.push(packAcrossWidth(W, H, effW, qty, margin))
+    if (H <= effW) cand.push(packAcrossWidth(H, W, effW, qty, margin))
     if (cand.length) {
       const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
       return {
@@ -86,8 +90,8 @@ function computeVinylLm(
       }
     }
     // Neither fits → tile the cheaper orientation
-    const v = tileColumns(W, H, effW, qty, overlap, gutter)
-    const h = tileColumns(H, W, effW, qty, overlap, gutter)
+    const v = tileColumns(W, H, effW, qty, overlap, margin)
+    const h = tileColumns(H, W, effW, qty, overlap, margin)
     const pick = v.totalMm <= h.totalMm ? v : h
     return { lmBase: pick.totalLm, note: `Auto tiled (${pick.cols} col) @ ${Math.round(effW)}mm` }
   }
@@ -104,12 +108,12 @@ function computeVinylLm(
 
   // Try as-is
   if (baseW <= effW) {
-    const p = packAcrossWidth(baseW, baseH, effW, pieces, gutter)
+    const p = packAcrossWidth(baseW, baseH, effW, pieces, margin)
     candidates.push({ ...p, rotated: false })
   }
   // Try rotated
   if (baseH <= effW) {
-    const p = packAcrossWidth(baseH, baseW, effW, pieces, gutter)
+    const p = packAcrossWidth(baseH, baseW, effW, pieces, margin)
     candidates.push({ ...p, rotated: true })
   }
 
@@ -122,8 +126,8 @@ function computeVinylLm(
   }
 
   // Neither orientation fits across → tile both ways; choose cheaper
-  const ta = tileColumns(baseW, baseH, effW, pieces, overlap, gutter)
-  const tb = tileColumns(baseH, baseW, effW, pieces, overlap, gutter)
+  const ta = tileColumns(baseW, baseH, effW, pieces, overlap, margin)
+  const tb = tileColumns(baseH, baseW, effW, pieces, overlap, margin)
   const useRot = tb.totalMm < ta.totalMm
   const pick   = useRot ? tb : ta
   return {
@@ -158,14 +162,12 @@ export function priceSingle(
   const s = normalizeSettings(rawSettings as any)
   const notes: string[] = []
 
-  // Printed area used for ink (rectangle).
-  // No ink for Solid Colour Cut Vinyl or Substrate Only (as requested).
+  // No ink for Solid Colour Cut Vinyl or Substrate Only
   const areaSqm =
       input.mode === 'SolidColourCutVinyl' || input.mode === 'SubstrateOnly'
           ? 0
           : mm2ToSqm((input.widthMm || 0) * (input.heightMm || 0) * (input.qty || 1))
 
-  // Rectangle perimeter (for optional perimeter charging)
   const perimeterM = ((((input.widthMm || 0) + (input.heightMm || 0)) * 2) / 1000) * (input.qty || 1)
 
   let materials = 0
@@ -179,7 +181,6 @@ export function priceSingle(
   let cutting = (s.cutPerSign || 0) * (input.qty || 1)
   let finishingUplift = 0
 
-  // Track vinyl length so we can charge per-lm add-ons (and add waste)
   let vinylLmRaw = 0
   let vinylLmWithWaste = 0
 
@@ -187,7 +188,7 @@ export function priceSingle(
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
   const addVinylCost = (lmRaw: number, pricePerLm: number, printed: boolean) => {
-    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0   // +1.00 lm (or whatever is configured)
+    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0
     vinylLmRaw = lmRaw
     vinylLmWithWaste = lmRaw + waste
     materials += vinylLmWithWaste * pricePerLm
@@ -197,10 +198,11 @@ export function priceSingle(
   if (input.mode === 'SolidColourCutVinyl') {
     if (!mediaItem) throw new Error('Select a vinyl media')
     const { effectiveCutWidthMm } = getEffectiveWidths(mediaItem, s)
-    const gutter = s.vinylMarginMm || 0
-    const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + gutter)))
+    const margin = s.vinylMarginMm || 0
+    const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + margin)))
     const rows = Math.ceil((input.qty || 1) / perRow)
-    const lm = (rows * ((input.heightMm || 0) + gutter)) / 1000
+    // edge gutters at top & bottom
+    const lm = (rows * ((input.heightMm || 0)) + (rows + 1) * margin) / 1000
     addVinylCost(lm, mediaItem.pricePerLm, false)
     vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
     notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
@@ -228,12 +230,10 @@ export function priceSingle(
     vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
     notes.push(v.note)
 
-    // Per-lm application tape
     if (input.applicationTape && s.applicationTapePerLm) {
       materials += lm * s.applicationTapePerLm
       notes.push(`Application tape: ${lm.toFixed(2)} lm × £${s.applicationTapePerLm.toFixed(2)}`)
     }
-    // Per-lm white backing
     if (input.backedWithWhite && s.whiteBackingPerLm) {
       materials += lm * s.whiteBackingPerLm
       notes.push(`White backing: ${lm.toFixed(2)} lm × £${s.whiteBackingPerLm.toFixed(2)}`)
@@ -256,7 +256,6 @@ export function priceSingle(
     const sheetCost = substrateItem.pricePerSheet
     materials += sheetCost * chargedSheets
 
-    // (Optional) stats/line item
     substrateCostItems.push({
       material: substrateItem.name,
       sheet: `${substrateItem.sizeW}×${substrateItem.sizeH}`,
