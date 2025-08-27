@@ -2,67 +2,72 @@
 'use client'
 
 import Card from '@/components/Card'
-import type { DeliveryMode, SingleSignInput } from '@/lib/types'
+import { useId } from 'react'
+import type { DeliveryMode } from '@/lib/types'
 
-export default function DimensionsCard(props: {
+export default function DimensionsCard({
+                                           widthMm,
+                                           heightMm,
+                                           qty,
+                                           deliveryMode = 'Boxed',
+                                           onChange,
+                                       }: {
     widthMm: number
     heightMm: number
     qty: number
     deliveryMode?: DeliveryMode
-    onChange: (patch: Partial<SingleSignInput>) => void
+    onChange: (patch: Partial<{ widthMm: number; heightMm: number; qty: number; deliveryMode: DeliveryMode }>) => void
 }) {
-    const { widthMm, heightMm, qty, deliveryMode = 'Boxed', onChange } = props
-
+    const id = useId()
     return (
         <Card>
             <h2 className="h2 mb-2">Dimensions</h2>
 
-            <div className="space-y-3">
-                <label className="block">
-                    <div className="label">Width (mm)</div>
+            <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col">
+                    <span className="text-sm text-muted-foreground">Width (mm)</span>
                     <input
-                        type="number"
                         className="input"
-                        value={widthMm ?? 0}
-                        onChange={(e) => onChange({ widthMm: Number(e.target.value || 0) })}
-                        min={0}
-                    />
-                </label>
-
-                <label className="block">
-                    <div className="label">Height (mm)</div>
-                    <input
                         type="number"
-                        className="input"
-                        value={heightMm ?? 0}
-                        onChange={(e) => onChange({ heightMm: Number(e.target.value || 0) })}
-                        min={0}
-                    />
-                </label>
-
-                <label className="block">
-                    <div className="label">Quantity</div>
-                    <input
-                        type="number"
-                        className="input"
-                        value={qty ?? 1}
-                        onChange={(e) => onChange({ qty: Math.max(1, Number(e.target.value || 1)) })}
                         min={1}
+                        value={widthMm ?? 0}
+                        onChange={(e) => onChange({ widthMm: +e.target.value || 0 })}
                     />
                 </label>
 
-                {/* NEW: Delivery option */}
-                <label className="block">
-                    <div className="label">Delivery</div>
+                <label className="flex flex-col">
+                    <span className="text-sm text-muted-foreground">Height (mm)</span>
+                    <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={heightMm ?? 0}
+                        onChange={(e) => onChange({ heightMm: +e.target.value || 0 })}
+                    />
+                </label>
+
+                <label className="flex flex-col">
+                    <span className="text-sm text-muted-foreground">Quantity</span>
+                    <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={qty ?? 1}
+                        onChange={(e) => onChange({ qty: Math.max(1, +e.target.value || 1) })}
+                    />
+                </label>
+
+                {/* Delivery selector */}
+                <label className="flex flex-col">
+                    <span className="text-sm text-muted-foreground">Delivery</span>
                     <select
-                        className="select w-full"
+                        id={`${id}-delivery`}
+                        className="input"
                         value={deliveryMode}
-                        onChange={(e) =>
-                            onChange({ deliveryMode: (e.target.value as DeliveryMode) })
-                        }
+                        onChange={(e) => onChange({ deliveryMode: e.target.value as DeliveryMode })}
                     >
                         <option value="Boxed">Boxed</option>
-                        <option value="OnARoll">On a Roll</option>
+                        <option value="OnRoll">On a Roll</option>
                     </select>
                 </label>
             </div>

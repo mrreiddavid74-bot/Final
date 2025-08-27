@@ -1,10 +1,18 @@
+// app/single/page.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { priceSingle } from '@/lib/pricing'
 import { DEFAULT_SETTINGS } from '@/lib/defaults'
 import { normalizeSettings } from '@/lib/settings-normalize'
-import type { SingleSignInput, PriceBreakdown, Settings, VinylMedia, Substrate } from '@/lib/types'
+import type {
+  SingleSignInput,
+  PriceBreakdown,
+  Settings,
+  VinylMedia,
+  Substrate,
+  DeliveryMode,
+} from '@/lib/types'
 
 // UI
 import ProductCard from '@/components/ProductCard'
@@ -43,8 +51,8 @@ export default function SinglePage() {
   // Settings (uploaded rates with DEFAULT fallback)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
 
-  // User input
-  const [input, setInput] = useState<SingleSignInput>({
+  // User input (include deliveryMode + hemEyelets)
+  const [input, setInput] = useState<SingleSignInput & { deliveryMode?: DeliveryMode }>({
     mode: 'PrintAndCutVinyl',
     widthMm: 1000,
     heightMm: 500,
@@ -72,10 +80,8 @@ export default function SinglePage() {
     cuttingStyle: 'Standard',
     applicationTape: false,
 
-    // Delivery selection (NEW: wire-through only; pricing already supports it)
-    deliveryMode: 'Boxed', // 'Boxed' | 'OnARoll'
-
     hemEyelets: false,
+    deliveryMode: 'Boxed',
   })
 
   // Which substrate name group is selected
@@ -129,7 +135,7 @@ export default function SinglePage() {
     )
   }, [media])
 
-  // Build substrate “name groups” (same product, different sheet sizes)
+  // Build substrate “name groups”
   type SubGroup = { key: string; displayName: string; variants: Substrate[] }
   const subGroups: SubGroup[] = useMemo(() => {
     const map = new Map<string, Substrate[]>()
@@ -218,7 +224,7 @@ export default function SinglePage() {
     return (panelW <= w && panelH <= h) || (panelW <= h && panelH <= w)
   }
 
-  // Compute allowed splits per orientation so the dropdowns enable sensible options
+  // Allowed splits per orientation
   const allowedSplitsForOrientation = useMemo(() => {
     const res: Record<Orientation, number[]> = { Vertical: [], Horizontal: [] }
     const W = input.widthMm || 0
@@ -242,7 +248,7 @@ export default function SinglePage() {
     return res
   }, [input.widthMm, input.heightMm, usableSheet.w, usableSheet.h])
 
-  // Auto-correct panel splits to something that fits (previous app behaviour)
+  // Auto-correct panel splits to something that fits
   useEffect(() => {
     if (!isSubstrateMode || !currentSubVariant) return
     const curOri: Orientation = input.panelOrientation ?? 'Vertical'
@@ -285,11 +291,11 @@ export default function SinglePage() {
     try {
       return priceSingle(
           {
-            ...input,
+            ...input, // includes deliveryMode & hemEyelets
             vinylAuto: vinylAutoMode === 'auto',
             vinylSplitOverride: vinylAutoMode === 'custom' ? vinylSplitOverride : 0,
             vinylSplitOrientation: vinylOrientation,
-          },
+          } as any,
           media,
           substrates,
           settings,
@@ -311,14 +317,14 @@ export default function SinglePage() {
     return { panelsText: `${n === 0 ? 1 : n} × Panels of ${Math.round(panelW)}mm × ${Math.round(panelH)}mm` }
   }, [input.panelSplits, input.panelOrientation, input.widthMm, input.heightMm])
 
-  // ---------- Vinyl Split Options preview (mirrors pricing, includes edge gutters & double-sided) ----------
+  // Vinyl Split Options preview (mirrors pricing)
   const vinylPreview = useMemo(() => {
     const m = media.find(x => x.id === input.vinylId)
     if (!m) return { text: '—', lmText: '—' }
 
     const masterCap = settings.masterMaxPrintWidthMm || Infinity
     const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
-    const margin = settings.vinylMarginMm ?? 0
+    const margin = settings.vinylMarginMm ?? 0       // “Vinyl Sign Margin mm”
     const overlap = settings.tileOverlapMm ?? 0
     const W = input.widthMm || 0
     const H = input.heightMm || 0
@@ -331,14 +337,14 @@ export default function SinglePage() {
     const packAcross = (acrossDim: number, lengthDim: number, pieces: number) => {
       const pr = perRow(acrossDim)
       const rows = Math.ceil(pieces / pr)
-      const totalMm = rows * lengthDim + (rows + 1) * margin // edge gutters
+      const totalMm = rows * lengthDim + (rows + 1) * margin
       return { across: pr, rows, totalMm }
     }
 
     const tileColumnsTotal = (acrossDim: number, lengthDim: number, pieces: number) => {
       const denom = Math.max(1, effW - overlap)
       const cols = Math.ceil((acrossDim + overlap) / denom)
-      const totalMm = cols * (pieces * lengthDim + (pieces + 1) * margin) // edge + between
+      const totalMm = cols * (pieces * lengthDim + (pieces + 1) * margin)
       return { cols, totalMm }
     }
 
@@ -419,7 +425,6 @@ export default function SinglePage() {
               widthMm={input.widthMm}
               heightMm={input.heightMm}
               qty={input.qty}
-              // NEW: wire delivery selection through the same onChange patch
               deliveryMode={input.deliveryMode ?? 'Boxed'}
               onChange={(patch) => setInput({ ...input, ...patch })}
           />
@@ -465,6 +470,8 @@ export default function SinglePage() {
                   backedWithWhite={!!input.backedWithWhite}
                   cuttingStyle={input.cuttingStyle ?? 'Standard'}
                   applicationTape={!!input.applicationTape}
+                  hemEyelets={!!input.hemEyelets}
+                  showHemEyelets={input.mode === 'PrintAndCutVinyl'}
                   onChange={(patch) => setInput({ ...input, ...patch })}
               />
 

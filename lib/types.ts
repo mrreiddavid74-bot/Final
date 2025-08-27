@@ -29,8 +29,8 @@ export type PlotterCut =
 // Additional cut difficulty uplift (percentage multipliers)
 export type CuttingStyle = 'Standard' | 'Intricate'
 
-// NEW: delivery mode
-export type DeliveryMode = 'Boxed' | 'OnARoll'
+// Delivery mode (shared everywhere)
+export type DeliveryMode = 'Boxed' | 'OnRoll'
 
 // -----------------------------
 // Inventory models
@@ -97,7 +97,7 @@ export type Settings = {
   // Hem/Eyelets per piece (qty-based)
   hemEyeletsPerPiece?: number    // from "Hem or Eyelets" / "Hem/Eyelets"
 
-  // Delivery (flat form)
+  // Delivery (flat form or nested)
   deliveryBase?: number
   deliveryBands?: Array<{
     maxSumCm?: number
@@ -105,8 +105,6 @@ export type Settings = {
     surcharge?: number
     name?: string
   }>
-
-  // Optional nested delivery (supported by normalizer)
   delivery?: {
     baseFee?: number
     bands?: Array<{
@@ -157,8 +155,8 @@ export type SingleSignInput = {
   applicationTape?: boolean       // adds applicationTapePerLm × lm
   hemEyelets?: boolean            // adds hemEyeletsPerPiece × qty (Print & Cut only)
 
-  // NEW: Delivery rule
-  deliveryMode?: DeliveryMode     // 'Boxed' (default) | 'OnARoll'
+  // Delivery rule
+  deliveryMode?: DeliveryMode     // 'Boxed' (default) | 'OnRoll'
 }
 
 // -----------------------------
