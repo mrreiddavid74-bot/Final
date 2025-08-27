@@ -24,8 +24,8 @@ const fmtSize  = (w?: number, h?: number) => `${w ?? 0} x ${h ?? 0}mm`
 const MAX_SPLITS = 6
 
 // Derive unions from SingleSignInput so we don’t rely on extra exports
-type Mode         = SingleSignInput['mode']
-type Orientation  = NonNullable<SingleSignInput['panelOrientation']>
+type Mode        = SingleSignInput['mode']
+type Orientation = NonNullable<SingleSignInput['panelOrientation']>
 
 const MODES: { id: Mode; label: string }[] = [
   { id: 'SolidColourCutVinyl',     label: 'Solid Colour Cut Vinyl Only' },
@@ -71,6 +71,9 @@ export default function SinglePage() {
     backedWithWhite: false,
     cuttingStyle: 'Standard',
     applicationTape: false,
+
+    // Delivery selection (NEW: wire-through only; pricing already supports it)
+    deliveryMode: 'Boxed', // 'Boxed' | 'OnARoll'
 
     hemEyelets: false,
   })
@@ -137,17 +140,19 @@ export default function SinglePage() {
     const groups: SubGroup[] = []
     for (const [key, list] of map) {
       const seen = new Set<string>()
-      const variants = list.filter(v => {
-        const sk = sizeKey(v.sizeW, v.sizeH)
-        if (seen.has(sk)) return false
-        seen.add(sk)
-        return true
-      }).sort((a, b) => {
-        const arA = (a.sizeW ?? 0) * (a.sizeH ?? 0)
-        const arB = (b.sizeW ?? 0) * (b.sizeH ?? 0)
-        if (arA !== arB) return arA - arB
-        return (a.sizeW ?? 0) - (b.sizeW ?? 0)
-      })
+      const variants = list
+          .filter(v => {
+            const sk = sizeKey(v.sizeW, v.sizeH)
+            if (seen.has(sk)) return false
+            seen.add(sk)
+            return true
+          })
+          .sort((a, b) => {
+            const arA = (a.sizeW ?? 0) * (a.sizeH ?? 0)
+            const arB = (b.sizeW ?? 0) * (b.sizeH ?? 0)
+            if (arA !== arB) return arA - arB
+            return (a.sizeW ?? 0) - (b.sizeW ?? 0)
+          })
       groups.push({ key, displayName: baseName(variants[0]?.name) || 'Substrate', variants })
     }
     groups.sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -313,7 +318,7 @@ export default function SinglePage() {
 
     const masterCap = settings.masterMaxPrintWidthMm || Infinity
     const effW = Math.min(masterCap, m.rollPrintableWidthMm, m.maxPrintWidthMm ?? Infinity)
-    const margin = settings.vinylMarginMm ?? 0       // “Vinyl Sign Margin mm” from CSV
+    const margin = settings.vinylMarginMm ?? 0
     const overlap = settings.tileOverlapMm ?? 0
     const W = input.widthMm || 0
     const H = input.heightMm || 0
@@ -326,16 +331,14 @@ export default function SinglePage() {
     const packAcross = (acrossDim: number, lengthDim: number, pieces: number) => {
       const pr = perRow(acrossDim)
       const rows = Math.ceil(pieces / pr)
-      // edge gutters at top + bottom: (rows + 1) * margin
-      const totalMm = rows * lengthDim + (rows + 1) * margin
+      const totalMm = rows * lengthDim + (rows + 1) * margin // edge gutters
       return { across: pr, rows, totalMm }
     }
 
     const tileColumnsTotal = (acrossDim: number, lengthDim: number, pieces: number) => {
       const denom = Math.max(1, effW - overlap)
       const cols = Math.ceil((acrossDim + overlap) / denom)
-      // For each column: pieces * length + (pieces + 1) * margin (top+bottom + between pieces)
-      const totalMm = cols * (pieces * lengthDim + (pieces + 1) * margin)
+      const totalMm = cols * (pieces * lengthDim + (pieces + 1) * margin) // edge + between
       return { cols, totalMm }
     }
 
@@ -350,7 +353,6 @@ export default function SinglePage() {
         const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
         return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.totalMm * sides) }
       }
-      // need tiling
       const t = tileColumnsTotal(W, H, Q)
       const tileW = W / t.cols
       const across = perRow(tileW)
@@ -417,6 +419,8 @@ export default function SinglePage() {
               widthMm={input.widthMm}
               heightMm={input.heightMm}
               qty={input.qty}
+              // NEW: wire delivery selection through the same onChange patch
+              deliveryMode={input.deliveryMode ?? 'Boxed'}
               onChange={(patch) => setInput({ ...input, ...patch })}
           />
 

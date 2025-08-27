@@ -12,13 +12,13 @@ export type Mode =
 
 export type Orientation = 'Vertical' | 'Horizontal'
 
-// Laminate/finish options (used by finishingUplifts)
+// Kept simple; you can extend if you later model laminate types, etc.
 export type Finishing = 'None' | 'Gloss' | 'Matt' | 'AntiGraffiti'
 
 // Optional complexity (used in some solid-colour pricing rules)
 export type Complexity = 'Standard' | 'Simple' | 'Complex'
 
-// Plotter cut options (used by Vinyl Cut Options card)
+// Plotter cut options as used by the UI and pricing
 export type PlotterCut =
     | 'None'
     | 'KissOnRoll'
@@ -28,6 +28,9 @@ export type PlotterCut =
 
 // Additional cut difficulty uplift (percentage multipliers)
 export type CuttingStyle = 'Standard' | 'Intricate'
+
+// NEW: delivery mode
+export type DeliveryMode = 'Boxed' | 'OnARoll'
 
 // -----------------------------
 // Inventory models
@@ -75,14 +78,14 @@ export type Settings = {
   inkCostPerSqm?: number         // alias accepted by normalizer
   profitMultiplier?: number      // normalized from "Sell Multiplier"
 
-  // Finishing (laminate) uplifts; keys match Finishing
+  // Finishing (optional % uplifts applied on base); keys match Finishing
   finishingUplifts?: Partial<Record<Finishing, number>>
 
   // Application tape / white backing — linear-meter pricing
   applicationTapePerLm?: number  // from "Application Tape Cost per lm"
   whiteBackingPerLm?: number     // from "White Backed Vinyl lm"
 
-  // (Optional compatibility if uploads use sqm)
+  // (Kept for compatibility with any older area-based rules; unused in current pricing)
   appTapePerSqm?: number
   applicationTapePerSqm?: number
 
@@ -115,7 +118,7 @@ export type Settings = {
     }>
   }
 
-  // VAT etc.
+  // VAT etc. if you use it elsewhere
   vatRatePct?: number
 }
 
@@ -138,7 +141,7 @@ export type SingleSignInput = {
   finishing?: Finishing
   complexity?: Complexity
 
-  // Substrate/visual splits
+  // Substrate/visual splits (also reused to display "Vinyl splits" text)
   panelSplits?: number            // 0 = none (one piece)
   panelOrientation?: Orientation  // which dimension to split along
 
@@ -149,10 +152,13 @@ export type SingleSignInput = {
 
   // Vinyl Cut Options
   plotterCut?: PlotterCut
-  backedWithWhite?: boolean       // adds whiteBackingPerLm × lm (printed modes)
+  backedWithWhite?: boolean       // adds whiteBackingPerLm × lm
   cuttingStyle?: CuttingStyle
   applicationTape?: boolean       // adds applicationTapePerLm × lm
   hemEyelets?: boolean            // adds hemEyeletsPerPiece × qty (Print & Cut only)
+
+  // NEW: Delivery rule
+  deliveryMode?: DeliveryMode     // 'Boxed' (default) | 'OnARoll'
 }
 
 // -----------------------------
@@ -160,7 +166,6 @@ export type SingleSignInput = {
 // -----------------------------
 
 export type PriceBreakdown = {
-  // Money
   materials: number
   ink: number
   setup: number
@@ -170,23 +175,16 @@ export type PriceBreakdown = {
   delivery: number
   total: number
 
-  // Stats / utilization
-  vinylLm?: number                // linear meters (before waste)
-  vinylLmWithWaste?: number       // lm including job waste
+  vinylLm?: number
+  vinylLmWithWaste?: number
   sheetFraction?: 0.25 | 0.5 | 0.75 | 1
   sheetsUsed?: number
   usagePct?: number
   wastePct?: number
   deliveryBand?: string
 
-  // Itemized costs (for UI display)
   costs?: {
-    vinyl?: Array<{
-      media: string
-      lm: number
-      pricePerLm: number
-      cost: number
-    }>
+    vinyl?: Array<{ media: string; lm: number; pricePerLm: number; cost: number }>
     substrate?: Array<{
       material: string
       sheet: string
@@ -197,6 +195,5 @@ export type PriceBreakdown = {
     }>
   }
 
-  // Free-form notes for audit/debug
   notes?: string[]
 }

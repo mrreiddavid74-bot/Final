@@ -43,7 +43,8 @@ function packAcrossWidth(
 ) {
   const perRow = Math.max(1, Math.floor(effW / (acrossMm + margin)))
   const rows   = Math.ceil(pieces / perRow)
-  const totalMm = rows * lengthMm + (rows + 1) * margin // top & bottom gutters
+  // total length = sum of piece heights + top & bottom edge gutters for each row
+  const totalMm = rows * lengthMm + (rows + 1) * margin
   return { perRow, rows, totalMm, totalLm: totalMm / 1000 }
 }
 
@@ -58,19 +59,22 @@ function tileColumns(
 ) {
   const denom  = Math.max(1, effW - overlap)
   const cols   = Math.ceil((acrossMm + overlap) / denom)
-  const totalMm = cols * (pieces * lengthMm + (pieces + 1) * margin) // gutters top+bottom per column
+  // each column prints 'pieces' panels down with top+bottom margins per column
+  const totalMm = cols * (pieces * lengthMm + (pieces + 1) * margin)
   return { cols, totalMm, totalLm: totalMm / 1000 }
 }
 
-/** Compute vinyl linear meters for printed modes; includes edge gutters & respects custom tiling. */
+/** Compute vinyl linear meters for printed modes; includes gutters & respects custom tiling. */
 function computeVinylLm(
-    input: SingleSignInput, mediaItem: VinylMedia, s: Settings,
+    input: SingleSignInput,
+    mediaItem: VinylMedia,
+    s: Settings,
 ): { lmBase: number; note: string } {
   const { effectivePrintWidthMm: effW } = getEffectiveWidths(mediaItem, s)
   const W = input.widthMm || 0
   const H = input.heightMm || 0
   const qty = Math.max(1, input.qty || 1)
-  const margin = s.vinylMarginMm || 0
+  const margin = s.vinylMarginMm || 0     // "Vinyl Sign Margin mm"
   const overlap = s.tileOverlapMm || 0
 
   const auto = input.vinylAuto !== false
@@ -179,17 +183,20 @@ export function priceSingle(
 
   let vinylLmRaw = 0
   let vinylLmWithWaste = 0
-  let sheetsUsedPhys: number | undefined // ▼ expose packed full sheets
+  let sheetsUsedPhys: number | undefined
 
   const mediaItem = input.vinylId ? media.find(m => m.id === input.vinylId) : undefined
   const substrateItem = input.substrateId ? substrates.find(su => su.id === input.substrateId) : undefined
 
   const addVinylCost = (lmRaw: number, pricePerLm: number, printed: boolean) => {
-    // DEFAULT waste is 0.5 lm (overridable via CSV)
-    const waste = printed ? (s.vinylWasteLmPerJob || 0) : 0
+    // Default printed waste: 0.5 lm (override with settings.vinylWasteLmPerJob if provided)
+    const waste = printed ? (s.vinylWasteLmPerJob ?? 0.5) : 0
     vinylLmRaw = lmRaw
     vinylLmWithWaste = lmRaw + waste
     materials += vinylLmWithWaste * pricePerLm
+    if (printed && waste) {
+      notes.push(`Printed vinyl waste: +${waste.toFixed(2)} lm added before multiplier`)
+    }
   }
 
   // --- SOLID COLOUR CUT VINYL ---
@@ -199,19 +206,31 @@ export function priceSingle(
     const margin = s.vinylMarginMm || 0
     const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + margin)))
     const rows = Math.ceil((input.qty || 1) / perRow)
+    // include top+bottom edge margin across the rows
     const lm = (rows * ((input.heightMm || 0)) + (rows + 1) * margin) / 1000
     addVinylCost(lm, mediaItem.pricePerLm, false)
-    vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
+    vinylCostItems.push({
+      media: mediaItem.name,
+      lm: +lm.toFixed(3),
+      pricePerLm: mediaItem.pricePerLm,
+      cost: +((lm) * mediaItem.pricePerLm).toFixed(2),
+    })
     notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
 
-    if (input.applicationTape && s.applicationTapePerLm) {
-      materials += lm * s.applicationTapePerLm
-      notes.push(`Application tape: ${lm.toFixed(2)} lm × £${s.applicationTapePerLm.toFixed(2)}`)
+    // Application tape — PER LM (optional)
+    if (input.applicationTape) {
+      const rate = (s as any).applicationTapePerLm ?? (s as any).appTapePerLm ?? 0
+      if (rate) {
+        const add = rate * lm
+        materials += add
+        notes.push(`Application tape: ${lm.toFixed(2)} lm × £${rate.toFixed(2)} = £${add.toFixed(2)}`)
+      }
     }
 
+    // Finishing uplift
     const fin: Finishing = input.finishing ?? 'None'
-    const _uplift = (s as any).finishingUplifts?.[fin] ?? 0
-    if (_uplift) finishingUplift += _uplift * (materials + ink + cutting + setup)
+    const finPct = (s as any).finishingUplifts?.[fin] ?? 0
+    if (finPct) finishingUplift += finPct * (materials + ink + cutting + setup)
   }
 
   // --- PRINTED VINYL MODES ---
@@ -223,21 +242,40 @@ export function priceSingle(
     if (input.doubleSided) lm *= 2
 
     addVinylCost(lm, mediaItem.pricePerLm, true)
-    vinylCostItems.push({ media: mediaItem.name, lm: +lm.toFixed(3), pricePerLm: mediaItem.pricePerLm, cost: +(lm * mediaItem.pricePerLm).toFixed(2) })
+    vinylCostItems.push({
+      media: mediaItem.name,
+      lm: +lm.toFixed(3),
+      pricePerLm: mediaItem.pricePerLm,
+      cost: +(lm * mediaItem.pricePerLm).toFixed(2),
+    })
     notes.push(v.note)
 
-    if (input.applicationTape && s.applicationTapePerLm) {
-      materials += lm * s.applicationTapePerLm
-      notes.push(`Application tape: ${lm.toFixed(2)} lm × £${s.applicationTapePerLm.toFixed(2)}`)
-    }
-    if (input.backedWithWhite && s.whiteBackingPerLm) {
-      materials += lm * s.whiteBackingPerLm
-      notes.push(`White backing: ${lm.toFixed(2)} lm × £${s.whiteBackingPerLm.toFixed(2)}`)
+    // Application tape — PER LM
+    if (input.applicationTape) {
+      const rate = (s as any).applicationTapePerLm ?? (s as any).appTapePerLm ?? 0
+      if (rate) {
+        const len = vinylLmWithWaste || vinylLmRaw
+        const add = rate * len
+        materials += add
+        notes.push(`Application tape: ${len.toFixed(2)} lm × £${rate.toFixed(2)} = £${add.toFixed(2)}`)
+      }
     }
 
+    // White backing — PER LM
+    if (input.backedWithWhite) {
+      const rate = (s as any).whiteBackingPerLm ?? (s as any).whiteBackedPerLm ?? 0
+      if (rate) {
+        const len = vinylLmWithWaste || vinylLmRaw
+        const add = rate * len
+        materials += add
+        notes.push(`White backed vinyl: ${len.toFixed(2)} lm × £${rate.toFixed(2)} = £${add.toFixed(2)}`)
+      }
+    }
+
+    // Finishing uplift
     const fin: Finishing = input.finishing ?? 'None'
-    const _uplift = (s as any).finishingUplifts?.[fin] ?? 0
-    if (_uplift) finishingUplift += _uplift * (materials + ink + cutting + setup)
+    const finPct = (s as any).finishingUplifts?.[fin] ?? 0
+    if (finPct) finishingUplift += finPct * (materials + ink + cutting + setup)
   }
 
   // --- SUBSTRATE (panel-based packing) ---
@@ -261,17 +299,17 @@ export function priceSingle(
     const fitB = Math.floor(usableW / panelH) * Math.floor(usableH / panelW)
     const perSheetCapacity = Math.max(fitA, fitB, 1)
 
-    // Physical full sheets required to place all panels:
+    // Physical sheets actually required to place all panels:
     const fullSheetsNeeded = Math.ceil(totalPanels / perSheetCapacity)
     sheetsUsedPhys = fullSheetsNeeded
 
-    // Charging rule for the last (partial) sheet:
-    // use ≤ 0.5 → charge 0.5; slightly over → charge 1
+    // Charging rule for the last partial sheet:
+    // ≤ 0.5 sheet area → charge 0.5; slightly over → charge 1.0
     const fullWholeSheets = Math.floor(totalPanels / perSheetCapacity)
     const remainderPanels = totalPanels % perSheetCapacity
-
     const sheetArea = usableW * usableH
     const panelArea = panelW * panelH
+
     let chargedSheets = fullWholeSheets
     if (remainderPanels > 0) {
       const remainderArea = remainderPanels * panelArea
@@ -281,12 +319,6 @@ export function priceSingle(
 
     const sheetCost = substrateItem.pricePerSheet
     materials += sheetCost * chargedSheets
-
-    // (Optional) quick usage stat for notes
-    const usagePct =
-        sheetArea > 0
-            ? clamp((totalPanels * panelArea) / (fullSheetsNeeded * sheetArea) * 100, 0, 100)
-            : undefined
 
     substrateCostItems.push({
       material: substrateItem.name,
@@ -301,14 +333,12 @@ export function priceSingle(
         `Substrate split: ${parts} × ${ori} → panel ${Math.round(panelW)}×${Math.round(panelH)}mm; ` +
         `${perSheetCapacity} per sheet`
     )
-    if (usagePct !== undefined) notes.push(`Sheet usage ≈ ${usagePct.toFixed(1)}%`)
   }
 
   // --- CUT OPTIONS ---
   if (input.plotterCut && input.plotterCut !== 'None') {
     const perimAdd = (s.plotterPerimeterPerM ?? 0) * perimeterM
-    const perPiece = s.plotterCutPerPiece?.[input.plotterCut] ?? 0
-    const pieceAdd = perPiece * (input.qty || 1)
+    const perPiece = (s.plotterCutPerPiece?.[input.plotterCut] ?? 0)
     const setupMap: Record<string, number> = {
       KissOnRoll: (s as any).plotterCutSetup?.KissOnRoll ?? 0,
       KissOnSheets: (s as any).plotterCutSetup?.KissOnSheets ?? 0,
@@ -316,23 +346,70 @@ export function priceSingle(
       CutAndWeeded: (s as any).plotterCutSetup?.CutAndWeeded ?? 0,
     }
     const setupAdd = setupMap[input.plotterCut] ?? 0
+
+    const pieceAdd = perPiece * (input.qty || 1)
     cutting += perimAdd + pieceAdd + setupAdd
-    const parts: string[] = []
-    if (setupAdd) parts.push(`setup £${setupAdd.toFixed(2)}`)
-    if (pieceAdd) parts.push(`${input.qty} × £${perPiece.toFixed(2)} = £${pieceAdd.toFixed(2)}`)
-    if (perimAdd) parts.push(`perimeter £${perimAdd.toFixed(2)}`)
-    notes.push(`Cut option: ${input.plotterCut} — ${parts.join(' + ') || '£0.00'}`)
+
+    const partsMsg: string[] = []
+    if (setupAdd) partsMsg.push(`setup £${setupAdd.toFixed(2)}`)
+    if (pieceAdd) partsMsg.push(`${input.qty} × £${perPiece.toFixed(2)} = £${pieceAdd.toFixed(2)}`)
+    if (perimAdd) partsMsg.push(`perimeter £${perimAdd.toFixed(2)}`)
+    notes.push(`Cut option: ${input.plotterCut} — ${partsMsg.join(' + ') || '£0.00'}`)
   } else if (s.cutPerSign) {
     notes.push(`Cut option: None — setup £0.00 + ${input.qty} × £${s.cutPerSign.toFixed(2)} = £${(s.cutPerSign * (input.qty || 1)).toFixed(2)}`)
   }
 
-  // --- TOTALS ---
+  // Cutting style uplift (percentage)
+  if (input.cuttingStyle) {
+    const uplift = (s as any).cuttingStyleUplifts?.[input.cuttingStyle] ?? 0
+    if (uplift) {
+      const base = materials + ink + cutting + setup
+      const add = uplift * base
+      finishingUplift += add
+      notes.push(`Cutting style (${input.cuttingStyle}): +${Math.round(uplift * 100)}% = £${add.toFixed(2)}`)
+    }
+  }
+
+  // Hem / Eyelets (qty based; Print & Cut only)
+  if (
+      input.mode === 'PrintAndCutVinyl' &&
+      (input as any).hemEyelets === true
+  ) {
+    const rate = (s as any).hemEyeletsPerPiece ?? 0
+    const qty  = input.qty || 1
+    const add  = rate * qty
+    cutting += add
+    notes.push(`Hem/Eyelets: ${qty} × £${rate.toFixed(2)} = £${add.toFixed(2)}`)
+  }
+
+  // --- TOTALS / DELIVERY ---
   const profit = s.profitMultiplier ?? 1
   const preDelivery = (materials + ink) * profit + (setup + cutting + finishingUplift)
 
-  const { band, price: bandPrice } = deliveryFromGirth(s, input.widthMm || 0, input.heightMm || 0)
-  const deliveryBase = (s as any).deliveryBase ?? (s as any).delivery?.baseFee ?? 0
-  const delivery = deliveryBase + bandPrice
+  // Same delivery band logic as before…
+  const { band: rawBand, price: rawBandPrice } = deliveryFromGirth(
+      s,
+      input.widthMm || 0,
+      input.heightMm || 0,
+  )
+
+  const deliveryBase =
+      (s as any).delivery?.baseFee ??
+      (s as any).deliveryBase ??
+      0
+
+  // ✅ Only change: if On a Roll, remove band surcharge; keep base
+  const deliveryMode = input.deliveryMode === 'OnARoll' ? 'OnARoll' : 'Boxed'
+  const bandPrice    = deliveryMode === 'OnARoll' ? 0 : rawBandPrice
+  const delivery     = deliveryBase + bandPrice
+  const deliveryBand = deliveryMode === 'OnARoll'
+      ? 'On a Roll (band surcharge removed)'
+      : rawBand
+
+  if (deliveryMode === 'OnARoll') {
+    notes.push('Delivery: On a Roll — base fee only, band surcharge removed')
+  }
+
   const total = preDelivery + delivery
 
   return {
@@ -345,15 +422,14 @@ export function priceSingle(
     delivery: +delivery.toFixed(2),
     total: +total.toFixed(2),
 
-    // Vinyl stats
+    // Stats
     vinylLm: vinylLmRaw ? +vinylLmRaw.toFixed(3) : undefined,
     vinylLmWithWaste: vinylLmWithWaste ? +vinylLmWithWaste.toFixed(3) : undefined,
-
-    // Substrate packing stat for UI
     sheetsUsed: sheetsUsedPhys,
 
+    // Itemized
     costs: { vinyl: vinylCostItems, substrate: substrateCostItems },
-    deliveryBand: band,
+    deliveryBand,
     notes,
   }
 }
