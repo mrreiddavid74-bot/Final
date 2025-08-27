@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
     CutIndividually: 0,
     CutAndWeeded: 0,
   },
-  cuttingStyleUplifts: { Standard: 0, Intricate: 0 },
+  cuttingStyleUplifts: { Standard: 0, Reversed: 0 },
 
   // Hem/Eyelets per piece (qty-based)
   hemEyeletsPerPiece: 0,

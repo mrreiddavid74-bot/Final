@@ -14,14 +14,14 @@ export default function VinylCutOptionsCard({
     show: boolean
     plotterCut: 'None' | 'KissOnRoll' | 'KissOnSheets' | 'CutIndividually' | 'CutAndWeeded'
     backedWithWhite: boolean
-    cuttingStyle: 'Standard' | 'Intricate'
+    cuttingStyle: 'Standard' | 'Reversed'
     applicationTape: boolean
     hemEyelets?: boolean
     showHemEyelets?: boolean
     onChange: (patch: Partial<{
         plotterCut: 'None' | 'KissOnRoll' | 'KissOnSheets' | 'CutIndividually' | 'CutAndWeeded'
         backedWithWhite: boolean
-        cuttingStyle: 'Standard' | 'Intricate'
+        cuttingStyle: 'Standard' | 'Reversed'
         applicationTape: boolean
         hemEyelets: boolean
     }>) => void
@@ -55,7 +55,7 @@ export default function VinylCutOptionsCard({
                     onChange={e => onChange({ cuttingStyle: e.target.value as any })}
                 >
                     <option value="Standard">Standard</option>
-                    <option value="Intricate">Intricate</option>
+                    <option value="Reversed">Reversed</option>
                 </select>
             </label>
 

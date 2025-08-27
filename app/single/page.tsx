@@ -411,7 +411,15 @@ export default function SinglePage() {
   // ---------- Layout ----------
   return (
       <div className="space-y-6">
-        <h1 className="h1">Single Sign</h1>
+        <div>
+          <div className="flex items-center justify-between">
+            <h1 className="h1">Single Sign</h1>
+            <div className="flex items-center">
+              <img width={""} height={""} src="/oneprinter.svg" className="h-10"    alt="One Printer - Single Sign"/>
+            </div>
+          </div>
+        </div>
+
 
         {/* Top row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

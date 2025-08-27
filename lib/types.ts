@@ -27,7 +27,7 @@ export type PlotterCut =
     | 'CutAndWeeded'
 
 // Additional cut difficulty uplift (percentage multipliers)
-export type CuttingStyle = 'Standard' | 'Intricate'
+export type CuttingStyle = 'Standard' | 'Reversed'
 
 // Delivery mode (shared everywhere)
 export type DeliveryMode = 'Boxed' | 'OnRoll'
