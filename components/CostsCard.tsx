@@ -105,8 +105,7 @@ export default function CostsCard({
                     {/* Total box (slightly tighter padding) */}
                     <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
                         <div className="text-xl font-extrabold">
-                            Total (Sell Price): £{fmt(r.total)}{' '}
-                            <span className="font-semibold">+ VAT</span>
+                            Total (Sell Price): £{fmt(r.total)}
                         </div>
                         {typeof totalIncVat === 'number' && (
                             <div className="mt-1 text-[13px]">
