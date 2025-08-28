@@ -32,6 +32,31 @@ export function getEffectiveWidths(media: VinylMedia, settings: Settings) {
   }
 }
 
+
+// Find a numeric value across a few likely places/keys
+function pickNumber(...candidates: any[]): number {
+  for (const v of candidates) {
+    const n = typeof v === 'string' ? Number(v.replace(/[£,\s]/g, '')) : v
+    if (typeof n === 'number' && Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+// Read the “Cost Per Cut Substrate” from normalized or raw costs
+function getSubstrateSplitRate(s: any): number {
+  return pickNumber(
+      s.costPerCutSubstrate,                         // our preferred camel key
+      s.substrateCutPerPiece,                        // plausible alt
+      s.perCutSubstrate,                             // plausible alt
+      s.splitPerSubstrate,                           // plausible alt
+      s.cost_per_cut_substrate,                      // snake_case
+      s?.costs?.['Cost Per Cut Substrate'],          // direct CSV row name
+      s?.costs?.['Substrate Cut Per Piece'],         // possible alt label
+      s?.costs?.['Per Cut Substrate']                // possible alt label
+  )
+}
+
+
 /** --- Helpers for vinyl packing/tiling that include margins (edge + gaps) --- */
 function packAcrossWidthLm(
     pieceW: number, // mm across the roll
@@ -229,7 +254,6 @@ export function deliveryFromLongest(
   return { band: pick.name, price }
 }
 
-
 export function priceSingle(
     input: SingleSignInput,
     media: VinylMedia[],
@@ -259,6 +283,9 @@ export function priceSingle(
   let setup = s.setupFee || 0
   let cutting = (s.cutPerSign || 0) * (input.qty || 1)
   let finishingUplift = 0
+
+  // Add-ons that must be added AFTER multiplier (e.g., substrate split fee)
+  let postMultAddons = 0
 
   // Track vinyl length so we can charge per-lm add-ons
   let vinylLmRaw = 0
@@ -403,14 +430,20 @@ export function priceSingle(
       cost: +(chargedSheets * sheetCost).toFixed(2),
     })
 
-    // Per-cut substrate charge (qty × number of panels)
-    const perCut = (s as any).costPerCutSubstrate ?? 0
-    if (perCut) {
-      const pieces = totalPanels
+// Per-cut substrate charge (after multiplier): rate × (qty × panels per sign)
+    const perCut = getSubstrateSplitRate(s)
+    if (perCut > 0) {
+      const pieces = totalPanels // qty * panelsPerSign
       const add = perCut * pieces
       cutting += add
-      notes.push(`Substrate split: ${panelsPerSign} × per sign → ${pieces} cuts × £${perCut.toFixed(2)} = £${add.toFixed(2)}`)
+      notes.push(
+          `Substrate split: ${panelsPerSign} per sign × ${(input.qty || 1)} = ${pieces} cuts × £${perCut.toFixed(2)} = £${add.toFixed(2)}`
+      )
     }
+
+
+
+
   }
 
   // --- VINYL CUT OPTIONS PRICING ---
@@ -431,7 +464,9 @@ export function priceSingle(
     if (pieceAdd)  msg.push(`${(input.qty || 1)} × £${perPiece.toFixed(2)} = £${pieceAdd.toFixed(2)}`)
     notes.push(`Cut option: ${input.plotterCut} — ${msg.join(' + ') || '£0.00'}`)
   } else if (s.cutPerSign) {
-    notes.push(`Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${s.cutPerSign.toFixed(2)} = £${(s.cutPerSign * (input.qty || 1)).toFixed(2)}`)
+    notes.push(
+        `Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${s.cutPerSign.toFixed(2)} = £${(s.cutPerSign * (input.qty || 1)).toFixed(2)}`
+    )
   }
 
   // Optional cutting style uplift (%)
@@ -447,7 +482,8 @@ export function priceSingle(
 
   // --- TOTALS ---
   const multiplier = s.profitMultiplier ?? 1
-  const preDelivery = (materials + ink) * multiplier + (setup + cutting + finishingUplift)
+  // Add postMultAddons AFTER multiplier, as specified.
+  const preDelivery = (materials + ink) * multiplier + (setup + cutting + finishingUplift) + postMultAddons
 
   const { band, price: delivery } = deliveryFromLongest(
       s,
