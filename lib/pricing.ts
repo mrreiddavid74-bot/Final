@@ -156,7 +156,9 @@ function substratePanels(
   return { panelW, panelH, panelsPerSign: N }
 }
 
-/** How many such panels fit on a sheet (edges reduced by substrateMarginMm; no interior gap). */
+/** How many such panels fit on a sheet (edges reduced by substrateMarginMm).
+ * Try both orientations of the panel and return the better fit.
+ */
 function panelsPerSheet(
     panelW: number, panelH: number,
     sheetW: number, sheetH: number,
@@ -164,9 +166,18 @@ function panelsPerSheet(
 ) {
   const usableW = Math.max(0, sheetW - 2 * (substrateMarginMm || 0))
   const usableH = Math.max(0, sheetH - 2 * (substrateMarginMm || 0))
-  const across = Math.max(0, Math.floor(usableW / Math.max(1, panelW)))
-  const down   = Math.max(0, Math.floor(usableH / Math.max(1, panelH)))
-  return Math.max(0, across * down)
+
+  // as given
+  const across1 = Math.max(0, Math.floor(usableW / Math.max(1, panelW)))
+  const down1   = Math.max(0, Math.floor(usableH / Math.max(1, panelH)))
+  const fit1    = across1 * down1
+
+  // rotated
+  const across2 = Math.max(0, Math.floor(usableW / Math.max(1, panelH)))
+  const down2   = Math.max(0, Math.floor(usableH / Math.max(1, panelW)))
+  const fit2    = across2 * down2
+
+  return Math.max(fit1, fit2)
 }
 
 /** Delivery bands using the longest shipped piece.
