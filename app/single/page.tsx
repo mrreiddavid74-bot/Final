@@ -348,22 +348,48 @@ export default function SinglePage() {
       return { cols, totalMm }
     }
 
-    // AUTO
+
+// AUTO (match pricing.ts: evaluate both orientations and pick the shorter lm)
     if (vinylAutoMode === 'auto' && vinylSplitOverride === 0) {
       const fitsAsIs = W <= effW
       const fitsRot  = H <= effW
+
       if (fitsAsIs || fitsRot) {
-        const cand: Array<{ across: number; rows: number; totalMm: number }> = []
+        // shadow helper to also remember which dims were used
+        const packAcross = (acrossDim: number, lengthDim: number, pieces: number) => {
+          const pr = perRow(acrossDim)
+          const rows = Math.ceil(pieces / pr)
+          const totalMm = rows * lengthDim + (rows + 1) * margin
+          return { across: pr, rows, totalMm, acrossDim, lengthDim }
+        }
+
+        const cand: Array<{ across: number; rows: number; totalMm: number; acrossDim: number; lengthDim: number }> = []
         if (fitsAsIs) cand.push(packAcross(W, H, Q))
         if (fitsRot)  cand.push(packAcross(H, W, Q))
+
         const pick = cand.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
-        return { text: `${pick.across} per row — 1 × ${Math.round(W)} × ${Math.round(H)}mm`, lmText: mmText(pick.totalMm * sides) }
+        return {
+          text: `${pick.across} per row — 1 × ${Math.round(pick.acrossDim)} × ${Math.round(pick.lengthDim)}mm`,
+          lmText: mmText(pick.totalMm * sides),
+        }
       }
-      const t = tileColumnsTotal(W, H, Q)
-      const tileW = W / t.cols
-      const across = perRow(tileW)
-      return { text: `${across} per row — ${t.cols} × ${Math.round(W / t.cols)} × ${Math.round(H)}mm`, lmText: mmText(t.totalMm * sides) }
+
+      // Neither fits → tile both ways and pick the cheaper
+      const ta = tileColumnsTotal(W, H, Q)
+      const tb = tileColumnsTotal(H, W, Q)
+      const chooseA = ta.totalMm <= tb.totalMm
+      const chosen = chooseA ? ta : tb
+      const acrossDim = chooseA ? W : H
+      const lengthDim = chooseA ? H : W
+      const tileAcross = acrossDim / (chosen.cols || 1)
+      const across = perRow(tileAcross)
+
+      return {
+        text: `${across} per row — ${chosen.cols} × ${Math.round(acrossDim / chosen.cols)} × ${Math.round(lengthDim)}mm`,
+        lmText: mmText(chosen.totalMm * sides),
+      }
     }
+
 
     // CUSTOM
     const n = Math.max(1, vinylSplitOverride)
