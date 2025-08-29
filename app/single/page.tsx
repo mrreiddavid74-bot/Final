@@ -135,9 +135,25 @@ export default function SinglePage() {
     )
   }, [media])
 
+  // Prefer the "3mm Foamex" group if present
+  const pickDefaultSubGroup = (groups: SubGroup[]) => {
+    // exact match first
+    const exact = groups.find(g => nameKey(g.displayName) === '3mm foamex')
+    if (exact) return exact
+    // otherwise any Foamex that mentions 3mm
+    const loose = groups.find(g => /foamex/i.test(g.displayName) && /3\s*mm/i.test(g.displayName))
+    return loose || groups[0]
+  }
+
+
+
   // Build substrate “name groups”
   type SubGroup = { key: string; displayName: string; variants: Substrate[] }
   const subGroups: SubGroup[] = useMemo(() => {
+
+
+
+
     const map = new Map<string, Substrate[]>()
     for (const s of substrates) {
       const k = nameKey(s.name)
@@ -165,23 +181,32 @@ export default function SinglePage() {
     return groups
   }, [substrates])
 
-  // Sync selected group and variant
+
+
+
+
   useEffect(() => {
     if (!subGroups.length) return
     setInput(prev => {
       const next = { ...prev }
+
+      // No substrate chosen yet → pick our preferred default
       if (!prev.substrateId) {
-        const g = subGroups[0]
+        const g = pickDefaultSubGroup(subGroups)
         setSubGroupKey(g.key)
         next.substrateId = g.variants[0]?.id
         return next
       }
+
+      // Keep the group in sync with the currently chosen variant
       const g = subGroups.find(gr => gr.variants.some(v => v.id === prev.substrateId))
       if (g) {
         setSubGroupKey(k => (k === g.key ? k : g.key))
         return next
       }
-      const g2 = subGroups[0]
+
+      // If the current id isn’t in the list anymore, fall back to preferred default
+      const g2 = pickDefaultSubGroup(subGroups)
       setSubGroupKey(g2.key)
       next.substrateId = g2.variants[0]?.id
       return next
@@ -383,6 +408,20 @@ export default function SinglePage() {
       const lengthDim = chooseA ? H : W
       const tileAcross = acrossDim / (chosen.cols || 1)
       const across = perRow(tileAcross)
+
+      useEffect(() => {
+        if (!isSubstrateMode || !subGroups.length) return
+        setInput(prev => {
+          if (prev.substrateId) return prev
+          const g = pickDefaultSubGroup(subGroups)
+          setSubGroupKey(g.key)
+          return { ...prev, substrateId: g.variants[0]?.id }
+        })
+      }, [isSubstrateMode, subGroups])
+
+
+
+
 
       return {
         text: `${across} per row — ${chosen.cols} × ${Math.round(acrossDim / chosen.cols)} × ${Math.round(lengthDim)}mm`,
