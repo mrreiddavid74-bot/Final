@@ -292,7 +292,8 @@ export function priceSingle(
   const inkRate = (s.inkElecPerSqm ?? s.inkCostPerSqm ?? 0)
   let ink = areaSqm * inkRate
   let setup = s.setupFee || 0
-  let cutting = (s.cutPerSign || 0) * (input.qty || 1)
+//let cutting = (s.cutPerSign || 0) * (input.qty || 1)
+  let cutting = 0
   let finishingUplift = 0
 
   // Add-ons that must be added AFTER multiplier (e.g., substrate split fee)
@@ -457,28 +458,40 @@ export function priceSingle(
 
   }
 
+
   // --- VINYL CUT OPTIONS PRICING ---
-  if (input.plotterCut && input.plotterCut !== 'None') {
-    const perimRate = s.plotterPerimeterPerM ?? 0
-    const perimAdd  = perimRate * perimeterM
-    const perPiece  = (s as any).plotterCutPerPiece?.[input.plotterCut] ?? 0
+// Only applies to vinyl products; ignore when mounted/substrate-only
+  const isVinylMode =
+      input.mode === 'SolidColourCutVinyl' || input.mode === 'PrintAndCutVinyl'
 
-    const setupMap = (s as any).plotterCutSetup ?? {}
-    const setupAdd = setupMap[input.plotterCut] ?? 0
+  if (isVinylMode) {
+    if (input.plotterCut && input.plotterCut !== 'None') {
+      const perimRate = s.plotterPerimeterPerM ?? 0
+      const perimAdd  = perimRate * perimeterM
+      const perPiece  = (s as any).plotterCutPerPiece?.[input.plotterCut] ?? 0
 
-    const pieceAdd = perPiece * (input.qty || 1)
-    cutting += perimAdd + setupAdd + pieceAdd
+      const setupMap = (s as any).plotterCutSetup ?? {}
+      const setupAdd = setupMap[input.plotterCut] ?? 0
 
-    const msg: string[] = []
-    if (setupAdd)  msg.push(`setup £${setupAdd.toFixed(2)}`)
-    if (perimAdd)  msg.push(`perimeter £${perimAdd.toFixed(2)}`)
-    if (pieceAdd)  msg.push(`${(input.qty || 1)} × £${perPiece.toFixed(2)} = £${pieceAdd.toFixed(2)}`)
-    notes.push(`Cut option: ${input.plotterCut} — ${msg.join(' + ') || '£0.00'}`)
-  } else if (s.cutPerSign) {
-    notes.push(
-        `Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${s.cutPerSign.toFixed(2)} = £${(s.cutPerSign * (input.qty || 1)).toFixed(2)}`
-    )
+      const pieceAdd = perPiece * (input.qty || 1)
+      cutting += perimAdd + setupAdd + pieceAdd
+
+      const msg: string[] = []
+      if (setupAdd)  msg.push(`setup £${setupAdd.toFixed(2)}`)
+      if (perimAdd)  msg.push(`perimeter £${perimAdd.toFixed(2)}`)
+      if (pieceAdd)  msg.push(`${(input.qty || 1)} × £${perPiece.toFixed(2)} = £${pieceAdd.toFixed(2)}`)
+      notes.push(`Cut option: ${input.plotterCut} — ${msg.join(' + ') || '£0.00'}`)
+    } else if (s.cutPerSign) {
+      const add = (s.cutPerSign || 0) * (input.qty || 1)
+      cutting += add
+      notes.push(
+          `Cut option: None — setup £0.00 + ${(input.qty || 1)} × £${s.cutPerSign.toFixed(2)} = £${add.toFixed(2)}`
+      )
+    }
   }
+
+
+
 
   // Optional cutting style uplift (%)
   if ((s as any).cuttingStyleUplifts && input.cuttingStyle) {
