@@ -315,45 +315,47 @@ export function priceSingle(
     if (printed && waste) notes.push(`Printed vinyl waste: +${waste.toFixed(2)} lm added before multiplier`)
   }
 
-  // --- SOLID COLOUR CUT VINYL ---
+// --- SOLID COLOUR CUT VINYL ---
   if (input.mode === 'SolidColourCutVinyl') {
     if (!mediaItem) throw new Error('Select a vinyl media')
-    const { effectiveCutWidthMm } = getEffectiveWidths(mediaItem, s)
+
+    const { effectiveCutWidthMm: effW } = getEffectiveWidths(mediaItem, s)
     const margin = s.vinylMarginMm || 0
-    const perRow = Math.max(1, Math.floor(effectiveCutWidthMm / ((input.widthMm || 0) + margin)))
-    const rows = Math.ceil((input.qty || 1) / perRow)
-    const lm = (rows * ((input.heightMm || 0)) + (rows + 1) * margin) / 1000
-    addVinylCost(lm, mediaItem.pricePerLm, false)
+    const qty    = Math.max(1, input.qty || 1)
+    const W = input.widthMm  || 0
+    const H = input.heightMm || 0
+
+    // Try both orientations that FIT across the cut width; pick the shorter run
+    const candidates: Array<{ perRow: number; rows: number; totalMm: number; totalLm: number }> = []
+    if (W <= effW) candidates.push(packAcrossWidthLm(W, H, effW, qty, margin))
+    if (H <= effW) candidates.push(packAcrossWidthLm(H, W, effW, qty, margin))
+
+    let pick:
+        | { perRow: number; rows: number; totalMm: number; totalLm: number }
+        | undefined
+
+    if (candidates.length) {
+      pick = candidates.reduce((a, b) => (a.totalMm <= b.totalMm ? a : b))
+    } else {
+      // If neither side fits across the roll, fall back to column tiling (no overlap for cut vinyl)
+      const t = tileColumnsLm(W, H, effW, qty, /*overlap*/ 0, margin)
+      pick = { perRow: 1, rows: qty, totalMm: t.totalMm, totalLm: t.totalLm }
+      notes.push(`Auto tiled (cut vinyl) — ${t.columns} col @ ${Math.round(effW)}mm`)
+    }
+
+    const lm = pick.totalLm
+    addVinylCost(lm, mediaItem.pricePerLm, /*printed*/ false)
+
     vinylCostItems.push({
       media: mediaItem.name,
       lm: +lm.toFixed(3),
       pricePerLm: mediaItem.pricePerLm,
-      cost: +(((lm) * mediaItem.pricePerLm)).toFixed(2),
+      cost: +((lm) * mediaItem.pricePerLm).toFixed(2),
     })
-    notes.push(`${perRow}/row across ${effectiveCutWidthMm}mm cut width, ${rows} row(s)`)
 
-    // Optional complexity uplift per sticker
-    const cps = (s as any).complexityPerSticker as Partial<Record<string, number>> | undefined
-    if (input.complexity && cps && typeof cps[input.complexity] === 'number') {
-      cutting += (cps[input.complexity] as number) * (input.qty || 1)
-    }
-
-    // Application tape — per LM
-    if (input.applicationTape) {
-      const rateLm = (s as any).appTapePerLm ?? (s as any).applicationTapePerLm ?? 0
-      if (rateLm) {
-        const len = vinylLmWithWaste || vinylLmRaw
-        const add = rateLm * len
-        materials += add
-        notes.push(`Application tape: ${len.toFixed(2)} lm × £${rateLm.toFixed(2)} = £${add.toFixed(2)}`)
-      }
-    }
-
-    // Finishing uplift (laminate style etc.)
-    const fin: Finishing = input.finishing ?? 'None'
-    const upliftPct = (s as any).finishingUplifts?.[fin] ?? 0
-    if (upliftPct) finishingUplift += upliftPct * (materials + ink + cutting + setup)
+    notes.push(`${pick.perRow}/row across ${Math.round(effW)}mm cut width, ${pick.rows} row(s)`)
   }
+
 
   // --- PRINTED VINYL MODES ---
   if (input.mode === 'PrintAndCutVinyl' || input.mode === 'PrintedVinylOnSubstrate') {
