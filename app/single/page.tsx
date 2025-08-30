@@ -409,15 +409,15 @@ export default function SinglePage() {
       const tileAcross = acrossDim / (chosen.cols || 1)
       const across = perRow(tileAcross)
 
-      useEffect(() => {
-        if (!isSubstrateMode || !subGroups.length) return
-        setInput(prev => {
-          if (prev.substrateId) return prev
-          const g = pickDefaultSubGroup(subGroups)
-          setSubGroupKey(g.key)
-          return { ...prev, substrateId: g.variants[0]?.id }
-        })
-      }, [isSubstrateMode, subGroups])
+      // useEffect(() => {
+      //   if (!isSubstrateMode || !subGroups.length) return
+      //   setInput(prev => {
+      //     if (prev.substrateId) return prev
+      //     const g = pickDefaultSubGroup(subGroups)
+      //     setSubGroupKey(g.key)
+      //     return { ...prev, substrateId: g.variants[0]?.id }
+      //   })
+      // }, [isSubstrateMode, subGroups])
 
 
 
