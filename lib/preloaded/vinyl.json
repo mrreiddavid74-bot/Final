@@ -36,24 +36,6 @@
     "category": ""
   },
   {
-    "name": "Metamark MD5 Polymeric + Dry Wipe Lamination",
-    "rollWidthMm": "1295",
-    "rollPrintableWidthMm": "1265",
-    "pricePerLm": "12.82",
-    "maxPrintWidthMm": "1265",
-    "maxCutWidthMm": "1200",
-    "category": ""
-  },
-  {
-    "name": "Mono Standard  + Dry Wipe Lamination",
-    "rollWidthMm": "1295",
-    "rollPrintableWidthMm": "1265",
-    "pricePerLm": "10.67",
-    "maxPrintWidthMm": "1265",
-    "maxCutWidthMm": "1200",
-    "category": ""
-  },
-  {
     "name": "Metamark Cast + Cast Laminate",
     "rollWidthMm": "1370",
     "rollPrintableWidthMm": "1340",
