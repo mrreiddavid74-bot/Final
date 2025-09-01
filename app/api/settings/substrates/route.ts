@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { DEFAULT_SUBSTRATES } from '@/lib/defaults'
+import { put, list } from '@vercel/blob'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,7 +26,9 @@ type SubstrateRow = {
 
 let SUBSTRATE_OVERRIDE: SubstrateRow[] | null = null
 
+const BLOB_KEY = 'settings/substrates.json'
 const LIB_PRELOADED = path.resolve(process.cwd(), 'lib/preloaded/substrates.json')
+
 const num = (v: any) => (v === '' || v == null ? undefined : Number(v))
 
 function coerceRows(rows: SubstrateRow[]): SubstrateRow[] {
@@ -51,6 +54,17 @@ async function readJsonFile<T>(p: string): Promise<T | null> {
 async function readPublicJson<T>(req: NextRequest, rel: string): Promise<T | null> {
   try {
     const res = await fetch(new URL(rel, req.nextUrl.origin), { cache: 'no-store' })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch { return null }
+}
+
+async function readFromBlob<T>(): Promise<T | null> {
+  try {
+    const { blobs } = await list({ prefix: BLOB_KEY, limit: 1 })
+    const hit = blobs.find(b => b.pathname === BLOB_KEY) ?? blobs[0]
+    if (!hit?.url) return null
+    const res = await fetch(hit.url, { cache: 'no-store' })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch { return null }
@@ -84,19 +98,16 @@ async function persistJson(p: string, rows: any[]): Promise<boolean> {
     await fs.mkdir(path.dirname(p), { recursive: true })
     await fs.writeFile(p, JSON.stringify(rows, null, 2) + '\n', 'utf8')
     return true
-  } catch {
-    return false
-  }
+  } catch { return false }
 }
 
 export async function GET(req: NextRequest) {
   let rows: SubstrateRow[] | null = null
 
   if (SUBSTRATE_OVERRIDE) rows = SUBSTRATE_OVERRIDE
+  if (!rows) rows = await readFromBlob<SubstrateRow[]>()          // shared source
   if (!rows) rows = await readJsonFile<SubstrateRow[]>(LIB_PRELOADED)
-  if (!rows || !Array.isArray(rows) || rows.length === 0) {
-    rows = await readPublicJson<SubstrateRow[]>(req, '/preloaded/substrates.json')
-  }
+  if (!rows || !Array.isArray(rows) || rows.length === 0) rows = await readPublicJson<SubstrateRow[]>(req, '/preloaded/substrates.json')
 
   const result = coerceRows((rows && Array.isArray(rows) ? rows : (DEFAULT_SUBSTRATES as any)) as SubstrateRow[])
   return NextResponse.json(result, { headers: CACHE_HEADERS })
@@ -120,14 +131,20 @@ export async function POST(req: NextRequest) {
   }
 
   SUBSTRATE_OVERRIDE = rows
+
+  // Persist
   const persisted = await persistJson(LIB_PRELOADED, rows)
+  let blob: { ok: boolean; url?: string; error?: string } = { ok: false }
+  try {
+    const out = await put(BLOB_KEY, JSON.stringify(rows), { access: 'public', contentType: 'application/json' })
+    blob = { ok: true, url: out.url }
+  } catch (e: any) {
+    blob = { ok: false, error: e?.message || String(e) }
+  }
 
   const coerced = coerceRows(rows)
-  return NextResponse.json({
-    ok: true,
-    count: coerced.length,
-    persisted,
-    path: persisted ? LIB_PRELOADED : undefined,
-    note: persisted ? undefined : 'Could not write to disk (likely read-only in production). Data is active in memory for this server process.',
-  }, { headers: CACHE_HEADERS })
+  return NextResponse.json(
+      { ok: true, count: coerced.length, persisted, blob, version: Date.now() },
+      { headers: CACHE_HEADERS },
+  )
 }
