@@ -74,6 +74,7 @@ async function writeBlobJson(key: string, obj: unknown): Promise<string | null> 
             contentType: 'application/json',
             addRandomSuffix: false,
             token: process.env.BLOB_READ_WRITE_TOKEN, // optional; uses env if present
+            allowOverwrite: true,
         })
         return url
     } catch {
@@ -85,8 +86,8 @@ async function writeBlobJson(key: string, obj: unknown): Promise<string | null> 
 
 export async function GET() {
     // 1) runtime file
-    const runtime = await readJsonFile<Record<string, unknown>>(RUNTIME_FILE)
-    if (runtime) return json(runtime)
+   const runtime = await readJsonFile<Record<string, unknown>>(RUNTIME_FILE)
+   if (runtime) return json(runtime)
 
     // 2) blob
     const blobObj = await readBlobJson<Record<string, unknown>>(BLOB_KEY)

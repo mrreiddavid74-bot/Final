@@ -81,6 +81,7 @@ async function writeBlobJson(key: string, obj: unknown): Promise<string | null> 
       contentType: 'application/json',
       addRandomSuffix: false,
       token: process.env.BLOB_READ_WRITE_TOKEN,
+      allowOverwrite: true,
     })
     return url
   } catch {
