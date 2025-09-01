@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { put, list } from '@vercel/blob'
 
 export const runtime = 'nodejs'
@@ -8,16 +8,25 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-const CACHE_HEADERS = {
-    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-    Pragma: 'no-cache',
-    'Surrogate-Control': 'no-store',
-}
-
-const BLOB_KEY = 'settings/costs.json'
+/** Runtime file (best-effort) */
 const RUNTIME_DIR = '/tmp/settings'
 const RUNTIME_FILE = path.join(RUNTIME_DIR, 'costs.json')
+/** Bundled, repo-tracked fallback */
 const BUNDLED_FILE = path.join(process.cwd(), 'public', 'settings', 'costs.json')
+/** Shared, cross-instance storage (stable in production) */
+const BLOB_KEY = 'settings/costs.json'
+
+/* ---------------- helpers ---------------- */
+
+function json(res: unknown, status = 200) {
+    return new NextResponse(JSON.stringify(res), {
+        status,
+        headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+        },
+    })
+}
 
 function sanitizeKey(k: unknown): string {
     return String(k ?? '').trim().replace(/^\uFEFF/, '')
@@ -25,55 +34,70 @@ function sanitizeKey(k: unknown): string {
 
 function parseCsvKV(text: string): Record<string, unknown> {
     const out: Record<string, unknown> = {}
-    const lines = text.split(/\r?\n/).filter(Boolean)
-    if (!lines.length) return out
-    const headerish = /key|name/i.test(lines[0]) && /value/i.test(lines[0])
-    for (let i = headerish ? 1 : 0; i < lines.length; i++) {
-        const m = lines[i].match(/^\s*"?([^",]+)"?\s*,\s*"?(.+?)"?\s*$/)
+    const lines = text.split(/\r?\n/)
+    const firstLine = lines[0]?.trim()
+    const hasHeader = firstLine && /key|name/i.test(firstLine) && /value/i.test(firstLine)
+
+    for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
+        const raw = lines[i]
+        if (!raw || !raw.trim()) continue
+        const m = raw.match(/^\s*"?([^",]+)"?\s*,\s*"?(.+?)"?\s*$/)
         if (!m) continue
         const key = sanitizeKey(m[1])
-        const raw = m[2].trim()
-        const n = Number(raw.replace(/[£,\s]/g, ''))
-        out[key] = Number.isFinite(n) ? n : raw
+        if (!key) continue
+        const valStr = m[2].trim()
+        const n = Number(valStr)
+        out[key] = Number.isFinite(n) ? n : valStr
     }
     return out
 }
 
 async function readJsonFile<T>(p: string): Promise<T | null> {
-    try { return JSON.parse(await fs.readFile(p, 'utf8')) as T } catch { return null }
+    try { return JSON.parse(await readFile(p, 'utf8')) as T } catch { return null }
 }
 
-async function readFromBlob<T>(): Promise<T | null> {
+async function readBlobJson<T>(key: string): Promise<T | null> {
     try {
-        const { blobs } = await list({ prefix: BLOB_KEY, limit: 1 })
-        const hit = blobs.find(b => b.pathname === BLOB_KEY) ?? blobs[0]
-        if (!hit?.url) return null
-        const res = await fetch(hit.url, { cache: 'no-store' })
+        const { blobs } = await list({ prefix: key })
+        const entry = blobs.find(b => b.pathname === key)
+        if (!entry) return null
+        const res = await fetch(entry.url, { cache: 'no-store' })
         if (!res.ok) return null
         return (await res.json()) as T
     } catch { return null }
 }
 
-async function writeToBlob(obj: unknown) {
+async function writeBlobJson(key: string, obj: unknown): Promise<string | null> {
     try {
-        const out = await put(BLOB_KEY, JSON.stringify(obj), {
+        const { url } = await put(key, JSON.stringify(obj), {
             access: 'public',
             contentType: 'application/json',
+            addRandomSuffix: false,
+            token: process.env.BLOB_READ_WRITE_TOKEN, // optional; uses env if present
         })
-        return { ok: true, url: out.url }
-    } catch (e: any) {
-        return { ok: false, error: e?.message || String(e) }
+        return url
+    } catch {
+        return null
     }
 }
 
-export async function GET() {
-    let data =
-        (await readFromBlob<Record<string, unknown>>()) ||
-        (await readJsonFile<Record<string, unknown>>(RUNTIME_FILE)) ||
-        (await readJsonFile<Record<string, unknown>>(BUNDLED_FILE)) ||
-        {}
+/* ---------------- handlers ---------------- */
 
-    return NextResponse.json(data, { headers: CACHE_HEADERS })
+export async function GET() {
+    // 1) runtime file
+    const runtime = await readJsonFile<Record<string, unknown>>(RUNTIME_FILE)
+    if (runtime) return json(runtime)
+
+    // 2) blob
+    const blobObj = await readBlobJson<Record<string, unknown>>(BLOB_KEY)
+    if (blobObj) return json(blobObj)
+
+    // 3) bundled file
+    const bundled = await readJsonFile<Record<string, unknown>>(BUNDLED_FILE)
+    if (bundled) return json(bundled)
+
+    // 4) empty
+    return json({})
 }
 
 export async function POST(req: NextRequest) {
@@ -85,33 +109,28 @@ export async function POST(req: NextRequest) {
         if (ctype.includes('application/json') || /^[\s\r\n]*\{/.test(body)) {
             const parsed = JSON.parse(body)
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400 })
+                return json({ error: 'Expected a JSON object' }, 400)
             }
             for (const [k, v] of Object.entries(parsed)) {
                 const kk = sanitizeKey(k)
-                if (kk) obj[kk] = v
+                if (!kk) continue
+                obj[kk] = v
             }
         } else {
             obj = parseCsvKV(body)
         }
 
-        // Persist to Blob (shared) + /tmp (local hot)
-        const blob = await writeToBlob(obj)
+        // write runtime (best effort)
         try {
-            await fs.mkdir(RUNTIME_DIR, { recursive: true })
-            await fs.writeFile(RUNTIME_FILE, JSON.stringify(obj, null, 2), 'utf8')
-        } catch { /* ignore */ }
+            await mkdir(RUNTIME_DIR, { recursive: true })
+            await writeFile(RUNTIME_FILE, JSON.stringify(obj, null, 2), 'utf8')
+        } catch {}
 
-        return NextResponse.json(
-            {
-                ok: true,
-                count: Object.keys(obj).length,
-                blob: blob.ok ? { url: blob.url } : { error: blob.error },
-                version: Date.now(),
-            },
-            { headers: CACHE_HEADERS },
-        )
+        // write blob (cross-instance)
+        const blobUrl = await writeBlobJson(BLOB_KEY, obj)
+
+        return json({ ok: true, count: Object.keys(obj).length, blobUrl })
     } catch (e: any) {
-        return NextResponse.json({ error: e?.message || String(e) }, { status: 500, headers: CACHE_HEADERS })
+        return json({ error: e?.message || String(e) }, 500)
     }
 }

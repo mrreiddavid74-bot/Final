@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
-import { DEFAULT_MEDIA } from '@/lib/defaults'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import path from 'node:path'
 import { put, list } from '@vercel/blob'
+import { DEFAULT_MEDIA } from '@/lib/defaults'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
-
-const CACHE_HEADERS = {
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-  Pragma: 'no-cache',
-  'Surrogate-Control': 'no-store',
-}
 
 type VinylRow = {
   id?: string
@@ -28,9 +22,20 @@ type VinylRow = {
 
 let VINYL_OVERRIDE: VinylRow[] | null = null
 
-const BLOB_KEY = 'settings/vinyl.json'
 const LIB_PRELOADED = path.resolve(process.cwd(), 'lib/preloaded/vinyl.json')
+const BLOB_KEY = 'preloaded/vinyl.json'
+
 const num = (v: any) => (v === '' || v == null ? undefined : Number(v))
+
+function json(res: unknown, status = 200) {
+  return new NextResponse(JSON.stringify(res), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  })
+}
 
 function coerceRows(rows: VinylRow[]): VinylRow[] {
   return (rows || [])
@@ -51,7 +56,7 @@ function coerceRows(rows: VinylRow[]): VinylRow[] {
 }
 
 async function readJsonFile<T>(p: string): Promise<T | null> {
-  try { return JSON.parse(await fs.readFile(p, 'utf8')) as T } catch { return null }
+  try { return JSON.parse(await readFile(p, 'utf8')) as T } catch { return null }
 }
 
 async function readPublicJson<T>(req: NextRequest, rel: string): Promise<T | null> {
@@ -62,15 +67,57 @@ async function readPublicJson<T>(req: NextRequest, rel: string): Promise<T | nul
   } catch { return null }
 }
 
-async function readFromBlob<T>(): Promise<T | null> {
+async function readBlobJson<T>(key: string): Promise<T | null> {
   try {
-    const { blobs } = await list({ prefix: BLOB_KEY, limit: 1 })
-    const hit = blobs.find(b => b.pathname === BLOB_KEY) ?? blobs[0]
-    if (!hit?.url) return null
-    const res = await fetch(hit.url, { cache: 'no-store' })
+    const { blobs } = await list({ prefix: key })
+    const entry = blobs.find(b => b.pathname === key)
+    if (!entry) return null
+    const res = await fetch(entry.url, { cache: 'no-store' })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch { return null }
+}
+
+async function writeBlobJson(key: string, obj: unknown): Promise<string | null> {
+  try {
+    const { url } = await put(key, JSON.stringify(obj, null, 2), {
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: false,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    })
+    return url
+  } catch {
+    return null
+  }
+}
+
+export async function GET(req: NextRequest) {
+  // 1) in-memory override
+  if (VINYL_OVERRIDE && Array.isArray(VINYL_OVERRIDE)) {
+    return json(coerceRows(VINYL_OVERRIDE))
+  }
+
+  // 2) Blob
+  const fromBlob = await readBlobJson<VinylRow[]>(BLOB_KEY)
+  if (fromBlob && Array.isArray(fromBlob) && fromBlob.length) {
+    return json(coerceRows(fromBlob))
+  }
+
+  // 3) lib/preloaded on disk
+  const local = await readJsonFile<VinylRow[]>(LIB_PRELOADED)
+  if (local && Array.isArray(local) && local.length) {
+    return json(coerceRows(local))
+  }
+
+  // 4) public static fallback
+  const pub = await readPublicJson<VinylRow[]>(req, '/preloaded/vinyl.json')
+  if (pub && Array.isArray(pub) && pub.length) {
+    return json(coerceRows(pub))
+  }
+
+  // 5) defaults
+  return json(coerceRows(DEFAULT_MEDIA as any))
 }
 
 function parseCsv(text: string): VinylRow[] {
@@ -100,26 +147,6 @@ function parseCsv(text: string): VinylRow[] {
   })
 }
 
-async function persistJson(p: string, rows: any[]): Promise<boolean> {
-  try {
-    await fs.mkdir(path.dirname(p), { recursive: true })
-    await fs.writeFile(p, JSON.stringify(rows, null, 2) + '\n', 'utf8')
-    return true
-  } catch { return false }
-}
-
-export async function GET(req: NextRequest) {
-  let rows: VinylRow[] | null = null
-
-  if (VINYL_OVERRIDE) rows = VINYL_OVERRIDE
-  if (!rows) rows = await readFromBlob<VinylRow[]>()            // shared
-  if (!rows) rows = await readJsonFile<VinylRow[]>(LIB_PRELOADED)
-  if (!rows || !Array.isArray(rows) || rows.length === 0) rows = await readPublicJson<VinylRow[]>(req, '/preloaded/vinyl.json')
-
-  const result = coerceRows((rows && Array.isArray(rows) ? rows : (DEFAULT_MEDIA as any)) as VinylRow[])
-  return NextResponse.json(result, { headers: CACHE_HEADERS })
-}
-
 export async function POST(req: NextRequest) {
   const ctype = req.headers.get('content-type') || ''
   const text = await req.text()
@@ -134,23 +161,28 @@ export async function POST(req: NextRequest) {
       rows = parseCsv(text)
     }
   } catch (err: any) {
-    return NextResponse.json({ error: `Parse error: ${err?.message || String(err)}` }, { status: 400, headers: CACHE_HEADERS })
+    return json({ error: `Parse error: ${err?.message || String(err)}` }, 400)
   }
 
+  // 1) in-memory for instant use
   VINYL_OVERRIDE = rows
 
-  const persisted = await persistJson(LIB_PRELOADED, rows)
-  let blob: { ok: boolean; url?: string; error?: string } = { ok: false }
+  // 2) persist to lib/preloaded (best effort)
   try {
-    const out = await put(BLOB_KEY, JSON.stringify(rows), { access: 'public', contentType: 'application/json' })
-    blob = { ok: true, url: out.url }
-  } catch (e: any) {
-    blob = { ok: false, error: e?.message || String(e) }
-  }
+    await mkdir(path.dirname(LIB_PRELOADED), { recursive: true })
+    await writeFile(LIB_PRELOADED, JSON.stringify(rows, null, 2) + '\n', 'utf8')
+  } catch {}
+
+  // 3) write to Blob
+  const blobUrl = await writeBlobJson(BLOB_KEY, rows)
 
   const coerced = coerceRows(rows)
-  return NextResponse.json(
-      { ok: true, count: coerced.length, persisted, blob, version: Date.now() },
-      { headers: CACHE_HEADERS },
-  )
+  return json({
+    ok: true,
+    count: coerced.length,
+    persisted: Boolean(blobUrl),
+    blobUrl,
+    path: LIB_PRELOADED,
+    note: blobUrl ? undefined : 'Blob write failed; data active in-memory only for this process.',
+  })
 }
