@@ -1,14 +1,21 @@
-// app/api/settings/costs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 const RUNTIME_DIR = '/tmp/settings'
 const RUNTIME_FILE = path.join(RUNTIME_DIR, 'costs.json')
 const BUNDLED_FILE = path.join(process.cwd(), 'public', 'settings', 'costs.json')
+
+const CACHE_HEADERS = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    Pragma: 'no-cache',
+    'Surrogate-Control': 'no-store',
+}
 
 function sanitizeKey(k: unknown): string {
     return String(k ?? '').trim().replace(/^\uFEFF/, '')
@@ -37,13 +44,13 @@ function parseCsvKV(text: string): Record<string, unknown> {
 export async function GET() {
     try {
         const buf = await fs.readFile(RUNTIME_FILE, 'utf8')
-        return NextResponse.json(JSON.parse(buf))
+        return NextResponse.json(JSON.parse(buf), { headers: CACHE_HEADERS })
     } catch {}
     try {
         const buf = await fs.readFile(BUNDLED_FILE, 'utf8')
-        return NextResponse.json(JSON.parse(buf))
+        return NextResponse.json(JSON.parse(buf), { headers: CACHE_HEADERS })
     } catch {
-        return NextResponse.json({}, { status: 200 })
+        return NextResponse.json({}, { status: 200, headers: CACHE_HEADERS })
     }
 }
 
@@ -62,7 +69,7 @@ export async function POST(req: NextRequest) {
                     obj[kk] = v
                 }
             } else {
-                return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400 })
+                return NextResponse.json({ error: 'Expected a JSON object' }, { status: 400, headers: CACHE_HEADERS })
             }
         } else {
             obj = parseCsvKV(body)
@@ -71,8 +78,8 @@ export async function POST(req: NextRequest) {
         await fs.mkdir(RUNTIME_DIR, { recursive: true })
         await fs.writeFile(RUNTIME_FILE, JSON.stringify(obj, null, 2), 'utf8')
 
-        return NextResponse.json({ ok: true, count: Object.keys(obj).length })
+        return NextResponse.json({ ok: true, count: Object.keys(obj).length }, { headers: CACHE_HEADERS })
     } catch (e: any) {
-        return NextResponse.json({ error: e?.message || String(e) }, { status: 500 })
+        return NextResponse.json({ error: e?.message || String(e) }, { status: 500, headers: CACHE_HEADERS })
     }
 }

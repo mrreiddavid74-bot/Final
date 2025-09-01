@@ -8,6 +8,12 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
+const CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  'Surrogate-Control': 'no-store',
+}
+
 type VinylRow = {
   id?: string
   name?: string
@@ -19,7 +25,7 @@ type VinylRow = {
   category?: string
 }
 
-let VINYL_OVERRIDE: VinylRow[] | null = null // in-memory override for instant effect
+let VINYL_OVERRIDE: VinylRow[] | null = null
 
 const LIB_PRELOADED = path.resolve(process.cwd(), 'lib/preloaded/vinyl.json')
 const num = (v: any) => (v === '' || v == null ? undefined : Number(v))
@@ -55,7 +61,6 @@ async function readPublicJson<T>(req: NextRequest, rel: string): Promise<T | nul
 }
 
 function parseCsv(text: string): VinylRow[] {
-  // minimal CSV parser — expects a header; no quoted-comma handling
   const lines = text.trim().split(/\r?\n/)
   if (!lines.length) return []
   const headers = lines.shift()!.split(',').map(h => h.trim().toLowerCase())
@@ -95,20 +100,14 @@ async function persistJson(p: string, rows: any[]): Promise<boolean> {
 export async function GET(req: NextRequest) {
   let rows: VinylRow[] | null = null
 
-  // 1) in-memory override wins (set by POST)
   if (VINYL_OVERRIDE) rows = VINYL_OVERRIDE
-
-  // 2) lib/preloaded from disk
   if (!rows) rows = await readJsonFile<VinylRow[]>(LIB_PRELOADED)
-
-  // 3) public/preloaded fallback
   if (!rows || !Array.isArray(rows) || rows.length === 0) {
     rows = await readPublicJson<VinylRow[]>(req, '/preloaded/vinyl.json')
   }
 
-  // 4) defaults
   const result = coerceRows((rows && Array.isArray(rows) ? rows : (DEFAULT_MEDIA as any)) as VinylRow[])
-  return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json(result, { headers: CACHE_HEADERS })
 }
 
 export async function POST(req: NextRequest) {
@@ -125,13 +124,10 @@ export async function POST(req: NextRequest) {
       rows = parseCsv(text)
     }
   } catch (err: any) {
-    return NextResponse.json({ error: `Parse error: ${err?.message || String(err)}` }, { status: 400 })
+    return NextResponse.json({ error: `Parse error: ${err?.message || String(err)}` }, { status: 400, headers: CACHE_HEADERS })
   }
 
-  // Set in-memory override for immediate effect
   VINYL_OVERRIDE = rows
-
-  // Try to persist to lib/preloaded (works in dev/local; may fail on serverless)
   const persisted = await persistJson(LIB_PRELOADED, rows)
 
   const coerced = coerceRows(rows)
@@ -141,5 +137,5 @@ export async function POST(req: NextRequest) {
     persisted,
     path: persisted ? LIB_PRELOADED : undefined,
     note: persisted ? undefined : 'Could not write to disk (likely read-only in production). Data is active in memory for this server process.',
-  })
+  }, { headers: CACHE_HEADERS })
 }

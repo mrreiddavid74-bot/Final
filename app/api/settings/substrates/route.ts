@@ -8,6 +8,12 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
+const CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+  Pragma: 'no-cache',
+  'Surrogate-Control': 'no-store',
+}
+
 type SubstrateRow = {
   id?: string
   name?: string
@@ -86,20 +92,14 @@ async function persistJson(p: string, rows: any[]): Promise<boolean> {
 export async function GET(req: NextRequest) {
   let rows: SubstrateRow[] | null = null
 
-  // 1) in-memory override first
   if (SUBSTRATE_OVERRIDE) rows = SUBSTRATE_OVERRIDE
-
-  // 2) local file
   if (!rows) rows = await readJsonFile<SubstrateRow[]>(LIB_PRELOADED)
-
-  // 3) public fallback
   if (!rows || !Array.isArray(rows) || rows.length === 0) {
     rows = await readPublicJson<SubstrateRow[]>(req, '/preloaded/substrates.json')
   }
 
-  // 4) defaults
   const result = coerceRows((rows && Array.isArray(rows) ? rows : (DEFAULT_SUBSTRATES as any)) as SubstrateRow[])
-  return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json(result, { headers: CACHE_HEADERS })
 }
 
 export async function POST(req: NextRequest) {
@@ -116,11 +116,10 @@ export async function POST(req: NextRequest) {
       rows = parseCsv(text)
     }
   } catch (err: any) {
-    return NextResponse.json({ error: `Parse error: ${err?.message || String(err)}` }, { status: 400 })
+    return NextResponse.json({ error: `Parse error: ${err?.message || String(err)}` }, { status: 400, headers: CACHE_HEADERS })
   }
 
   SUBSTRATE_OVERRIDE = rows
-
   const persisted = await persistJson(LIB_PRELOADED, rows)
 
   const coerced = coerceRows(rows)
@@ -130,5 +129,5 @@ export async function POST(req: NextRequest) {
     persisted,
     path: persisted ? LIB_PRELOADED : undefined,
     note: persisted ? undefined : 'Could not write to disk (likely read-only in production). Data is active in memory for this server process.',
-  })
+  }, { headers: CACHE_HEADERS })
 }
