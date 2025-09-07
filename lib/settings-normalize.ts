@@ -89,13 +89,13 @@ export function normalizeSettings(input: Partial<Settings> & Record<string, unkn
 
   // map postage bands (≤ 100/150/200, >200)
   const p100 = getNum(flat, 'Postage ≤ 100 cm', 0)
-  const p150 = getNum(flat, 'Postage ≤ 150 cm', 0)
+  const p115 = getNum(flat, 'Postage ≤ 115 cm', 0)
   const p200 = getNum(flat, 'Postage ≤ 200 cm', 0)
   const p200p = getNum(flat, 'Postage > 200 cm', 0)
-  if (p100 || p150 || p200 || p200p) {
+  if (p100 || p115 || p200 || p200p) {
     ;(s as any).deliveryBands = [
       { maxSumCm: 100, surcharge: p100 },
-      { maxSumCm: 150, surcharge: p150 },
+      { maxSumCm: 115, surcharge: p115 },
       { maxSumCm: 200, surcharge: p200 },
       { maxSumCm: Infinity, surcharge: p200p },
     ]
